@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { uploadResume, listResumes, downloadResumeUrl } from '../services/api';
+import { uploadResume, listResumes, downloadResumeUrl, deleteResume } from '../services/api';
 
 interface Resume {
   id: number;
@@ -80,6 +80,21 @@ export default function Dashboard() {
               {r.file.split('/').pop()}
             </a> 
             <span className="text-sm text-gray-500">({new Date(r.uploaded_at).toLocaleString()})</span>
+            <button
+              onClick={async () => {
+                if (!confirm('Delete this resume?')) return;
+                try {
+                  await deleteResume(r.id);
+                  setMessage('Resume deleted');
+                  loadResumes();
+                } catch (err: any) {
+                  setError(err.message || 'Delete failed');
+                }
+              }}
+              className="ml-3 text-sm text-red-600 underline"
+            >
+              Delete
+            </button>
           </li>
         ))}
       </ul>

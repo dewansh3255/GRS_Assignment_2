@@ -12,6 +12,8 @@ from .models import Resume
 from .serializers import ResumeSerializer
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework import status
+from django.db import transaction
 
 
 class ResumeUploadView(APIView):
@@ -68,3 +70,37 @@ class DownloadResumeView(APIView):
 
         response = FileResponse(ContentFile(decrypted), filename=basename)
         return response
+
+
+class DeleteResumeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk, format=None):
+        try:
+            resume = Resume.objects.get(pk=pk)
+        except Resume.DoesNotExist:
+            raise Http404("Resume not found")
+
+        # security check: only owner or explicitly authorized recruiter can delete
+        if request.user != resume.user and request.user not in resume.authorized_recruiters.all():
+            return HttpResponseForbidden("You do not have permission to delete this file.")
+
+        # perform deletion inside a transaction
+        with transaction.atomic():
+            # delete stored file
+            try:
+                resume.file.delete(save=False)
+            except Exception:
+                pass
+
+            # delete associated key if present
+            try:
+                if hasattr(resume, 'resume_key') and resume.resume_key:
+                    resume.resume_key.delete()
+            except Exception:
+                pass
+
+            # delete the resume record
+            resume.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -139,3 +139,15 @@ export const listResumes = async () => {
 
 export const downloadResumeUrl = (id: number) =>
   `${API_BASE_URL}/api/jobs/resume/${id}/download/`;
+
+export const deleteResume = async (id: number) => {
+  const response = await fetch(`${API_BASE_URL}/api/jobs/resume/${id}/`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || 'Delete failed');
+  }
+  return true;
+};
