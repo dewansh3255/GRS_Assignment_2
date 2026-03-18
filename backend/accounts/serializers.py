@@ -62,3 +62,12 @@ class ProfileSerializer(serializers.ModelSerializer):
             data.pop('skills', None)
 
         return data
+from .models import Message
+
+class MessageSerializer(serializers.ModelSerializer):
+    sender_username = serializers.ReadOnlyField(source='sender.username')
+
+    class Meta:
+        model = Message
+        fields = ['id', 'sender', 'sender_username', 'recipient', 'encrypted_content', 'encrypted_key', 'timestamp']
+        read_only_fields = ['sender', 'timestamp']

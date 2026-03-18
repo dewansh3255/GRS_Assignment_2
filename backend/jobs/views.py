@@ -8,7 +8,7 @@ from django.core.files.base import ContentFile
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Resume
+from .models import Resume, ResumeKey
 from .serializers import ResumeSerializer
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -16,18 +16,44 @@ from rest_framework import status
 from django.db import transaction
 
 
+# class ResumeUploadView(APIView):
+#     permission_classes = [IsAuthenticated]
+#     parser_classes = [MultiPartParser, FormParser]
+
+#     def post(self, request, format=None):
+#         file = request.FILES.get('file') 
+#         if not file:
+#             return Response({"detail": "No file provided"}, status=400)
+            
+#         # Let the model's custom save() method handle all the encryption 
+#         # and ResumeKey creation automatically!
+#         resume = Resume.objects.create(user=request.user, file=file)
+
+#         serializer = ResumeSerializer(resume)
+#         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
 class ResumeUploadView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, format=None):
         file = request.data.get('file')
+        
+        # --- ADD THIS TO CAPTURE THE SIGNATURE ---
+        digital_signature = request.data.get('digital_signature')
+        
         if not file:
             return Response({"detail": "No file provided"}, status=400)
-        resume = Resume.objects.create(user=request.user, file=file)
+            
+        # --- UPDATE THIS TO SAVE THE SIGNATURE ---
+        resume = Resume.objects.create(
+            user=request.user, 
+            file=file,
+            digital_signature=digital_signature
+        )
+        
         serializer = ResumeSerializer(resume)
         return Response(serializer.data)
-
 
 class ResumeListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -68,7 +94,11 @@ class DownloadResumeView(APIView):
         if basename.endswith('.enc'):
             basename = basename[:-4]
 
-        response = FileResponse(ContentFile(decrypted), filename=basename)
+        response = FileResponse(
+            ContentFile(decrypted), 
+            filename=basename, 
+            content_type='application/pdf' # Tells the browser to display it
+        )
         return response
 
 
@@ -104,3 +134,5 @@ class DeleteResumeView(APIView):
             resume.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+

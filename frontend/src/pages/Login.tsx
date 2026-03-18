@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginUser, verifyTOTPCode, uploadKeys } from '../services/api';
-import { generateKeyPair, exportKey, encryptPrivateKey } from '../utils/crypto';
+import { loginUser, verifyTOTPCode } from '../services/api';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [step, setStep] = useState(1); // 1 = Pass, 2 = 2FA, 3 = Generating Keys
+  const [step, setStep] = useState(1); // 1 = Pass, 2 = 2FA
   const [userId, setUserId] = useState<number | null>(null);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [otpCode, setOtpCode] = useState('');
@@ -32,26 +31,10 @@ export default function Login() {
 
     try {
       await verifyTOTPCode(userId, otpCode);
-      setStep(3); // Move to Crypto Setup
-      await handleCryptoSetup();
+      // Login successful, keys already exist from registration, just go to dashboard!
+      navigate('/dashboard'); 
     } catch (err: any) {
       setError(err.message);
-    }
-  };
-
-  // Step 3: Automatically Generate and Upload Keys
-  const handleCryptoSetup = async () => {
-    try {
-      const keys = await generateKeyPair();
-      const publicKey = await exportKey(keys.publicKey);
-      const privateKeyBase64 = await exportKey(keys.privateKey);
-      
-      const encryptedPrivateKey = await encryptPrivateKey(privateKeyBase64, credentials.password);
-      await uploadKeys(publicKey, encryptedPrivateKey);
-      
-      navigate('/dashboard');
-    } catch (err: any) {
-      setError("Crypto setup failed: " + err.message);
     }
   };
 
@@ -88,13 +71,6 @@ export default function Login() {
               Verify & Secure Session
             </button>
           </form>
-        )}
-
-        {step === 3 && (
-          <div className="text-center">
-            <p className="font-bold text-blue-600 mb-2">Generating Secure Keys...</p>
-            <p className="text-sm text-gray-500">Securing your session.</p>
-          </div>
         )}
       </div>
     </div>

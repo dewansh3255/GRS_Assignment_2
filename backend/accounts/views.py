@@ -3,8 +3,8 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny  # <--- IMPORT THIS
-from .models import UserKeys, Profile
-from .serializers import UserRegistrationSerializer, UserKeysSerializer, ProfileSerializer
+from .models import UserKeys, Profile, Message
+from .serializers import UserRegistrationSerializer, UserKeysSerializer, ProfileSerializer, MessageSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 import pyotp
@@ -18,21 +18,14 @@ class UploadKeysView(APIView):
     MEMBER B: Key Upload Endpoint
     Allows the frontend to save generated keys to the database.
     """
-    permission_classes = [AllowAny]
+    # 1. Require the user to be fully authenticated via cookies
+    permission_classes = [IsAuthenticated] 
 
     def post(self, request):
-        # --- MOCK USER STRATEGY (Until Feb 20) ---
-        user, created = User.objects.get_or_create(username="mock_user_1")
-        if created:
-            user.set_password("TestPass123")
-            user.phone_number = "0000000000"
-            user.save()
-        # -----------------------------------------
+        # 2. NO MORE MOCK USER! Use the real logged-in user.
+        user = request.user 
 
-        # --- ATOMIC FIX FOR RACE CONDITIONS ---
-        # update_or_create handles the "Does it exist? Update it. If not, Create it" logic
-        # safely in one step, preventing the IntegrityError.
-
+        # 3. Save the keys securely
         keys, created = UserKeys.objects.update_or_create(
             user=user,
             defaults={
@@ -43,7 +36,7 @@ class UploadKeysView(APIView):
 
         return Response(
             {"message": "Keys updated successfully!" if not created else "Keys created successfully!"},
-            status=status.HTTP_200_OK  # 200 OK is safer than 201 for updates
+            status=status.HTTP_200_OK
         )
 
 
@@ -159,6 +152,8 @@ class ProfileRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     lookup_field = 'user__username'
     lookup_url_kwarg = 'username'
     queryset = Profile.objects.all()
+    def get_object(self):
+        return self.request.user.profile
 
 
 class AuthCheckView(APIView):
@@ -174,3 +169,64 @@ class AuthCheckView(APIView):
         if not username:
             return get_object_or_404(Profile, user=self.request.user)
         return super().get_object()
+    
+from .serializers import MessageSerializer
+
+class GetPublicKeyView(APIView):
+    """
+    MEMBER B: Fetch Recipient's Public Key
+    Allows a user to get another user's public key to encrypt a message for them.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, username):
+        target_user = get_object_or_404(User, username=username)
+        try:
+            # We use .keys because of the related_name='keys' in the UserKeys model
+            user_keys = target_user.keys 
+            return Response({"public_key": user_keys.public_key}, status=status.HTTP_200_OK)
+        except UserKeys.DoesNotExist:
+            return Response({"error": "User has not set up their encryption keys yet."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class MessageListCreateView(generics.ListCreateAPIView):
+    """
+    MEMBER B: E2EE Messaging Endpoint
+    GET: Fetch my inbox (messages where I am the recipient).
+    POST: Send an encrypted message to someone else.
+    """
+    serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Only return messages sent TO the currently logged-in user
+        return Message.objects.filter(recipient=self.request.user).order_by('-timestamp')
+
+    def perform_create(self, serializer):
+        # Automatically set the 'sender' to the person making the request
+        serializer.save(sender=self.request.user)
+
+class UserListView(APIView):
+    """
+    MEMBER B: Fetch List of Users for Chat
+    Returns a list of all users (excluding the requester) to populate the chat sidebar.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Fetch all users EXCEPT the currently logged-in user
+        users = User.objects.exclude(id=request.user.id).values('id', 'username')
+        return Response(list(users), status=status.HTTP_200_OK)
+    
+class GetMyKeysView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user_keys = request.user.keys
+            return Response({
+                "public_key": user_keys.public_key,
+                "encrypted_private_key": user_keys.encrypted_private_key
+            }, status=status.HTTP_200_OK)
+        except UserKeys.DoesNotExist:
+            return Response({"error": "No keys found."}, status=status.HTTP_404_NOT_FOUND)

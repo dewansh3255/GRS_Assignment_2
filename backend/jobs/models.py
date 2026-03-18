@@ -22,6 +22,12 @@ class Resume(models.Model):
     file = models.FileField(upload_to='resumes/')
     is_encrypted = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    digital_signature = models.TextField(
+        blank=True, 
+        null=True, 
+        help_text="RSA-PSS signature of the file's SHA-256 hash"
+    )
 
     def save(self, *args, **kwargs):
         # if instance is new, persist it first so we have a PK for related models
@@ -44,11 +50,16 @@ class Resume(models.Model):
             f = Fernet(key)
             encrypted_data = f.encrypt(raw_data)
 
+            old_file_path = self.file.path
+
             # replace file content with encrypted version
             filename = os.path.basename(self.file.name)
             enc_name = f"{filename}.enc"
             self.file.save(enc_name, ContentFile(encrypted_data), save=False)
             self.is_encrypted = True
+
+            if os.path.exists(old_file_path):
+                os.remove(old_file_path)
 
             # record the key in associated ResumeKey
             # at this point self.pk is guaranteed to exist

@@ -72,6 +72,34 @@ class Profile(models.Model):
     def __str__(self):
         return f"{self.user.username}'s Profile"
     
+class Message(models.Model):
+    """
+    MEMBER B: End-to-End Encrypted Message Model
+    The server stores the encrypted content and the encrypted AES key, 
+    but can NEVER read the actual plaintext.
+    """
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='sent_messages'
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='received_messages'
+    )
+    
+    # The actual message text, encrypted symmetrically with an AES-GCM key
+    encrypted_content = models.TextField(help_text="Message encrypted with AES-GCM")
+    
+    # The AES-GCM key itself, encrypted asymmetrically with the RECIPIENT'S RSA Public Key
+    encrypted_key = models.TextField(help_text="AES key encrypted with Recipient's RSA Public Key")
+    
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Secure message from {self.sender.username} to {self.recipient.username} at {self.timestamp}"
+    
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_user_profile(sender, instance, created, **kwargs):

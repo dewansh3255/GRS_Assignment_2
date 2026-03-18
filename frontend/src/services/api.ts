@@ -111,43 +111,179 @@ export const verifyTOTPCode = async (userId: number, code: string) => {
 };
 
 // -------- Resume helpers --------
-export const uploadResume = async (file: File) => {
-  const form = new FormData();
-  form.append('file', file);
-  const response = await fetch(`${API_BASE_URL}/api/jobs/resume/upload/`, {
-    method: 'POST',
-    credentials: 'include',
-    body: form,
-  });
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.detail || 'Upload failed');
-  }
-  return await response.json();
-};
+// export const uploadResume = async (file: File) => {
+//   const form = new FormData();
+//   form.append('file', file);
+//   const response = await fetch(`${API_BASE_URL}/api/jobs/resume/upload/`, {
+//     method: 'POST',
+//     credentials: 'include',
+//     body: form,
+//   });
+//   if (!response.ok) {
+//     const err = await response.json();
+//     throw new Error(err.detail || 'Upload failed');
+//   }
+//   return await response.json();
+// };
 
-export const listResumes = async () => {
+// export const listResumes = async () => {
+//   const response = await fetch(`${API_BASE_URL}/api/jobs/resume/`, {
+//     method: 'GET',
+//     credentials: 'include',
+//   });
+//   if (!response.ok) {
+//     throw new Error('Failed to retrieve resumes');
+//   }
+//   return await response.json();
+// };
+
+// export const downloadResumeUrl = (id: number) =>
+//   `${API_BASE_URL}/api/jobs/resume/${id}/download/`;
+
+// export const deleteResume = async (id: number) => {
+//   const response = await fetch(`${API_BASE_URL}/api/jobs/resume/${id}/`, {
+//     method: 'DELETE',
+//     credentials: 'include',
+//   });
+//   if (!response.ok) {
+//     const err = await response.text();
+//     throw new Error(err || 'Delete failed');
+//   }
+//   return true;
+// };
+
+// --- PROFILE API ---
+// export const updateMyProfile = async (profileData: any) => {
+//   const response = await fetch(`${API_BASE_URL}/api/auth/profile/me/`, {
+//     method: "PATCH", // PATCH allows partial updates
+//     headers: { "Content-Type": "application/json" },
+//     credentials: "include",
+//     body: JSON.stringify(profileData),
+//   });
+//   if (!response.ok) throw new Error("Failed to update profile");
+//   return await response.json();
+// };
+
+// --- RESUME APIs ---
+// Assuming your jobs urls are mounted at /api/jobs/ in backend/core/urls.py
+export const getMyResumes = async () => {
   const response = await fetch(`${API_BASE_URL}/api/jobs/resume/`, {
-    method: 'GET',
-    credentials: 'include',
+    method: "GET",
+    credentials: "include",
   });
-  if (!response.ok) {
-    throw new Error('Failed to retrieve resumes');
-  }
+  if (!response.ok) throw new Error("Failed to fetch resumes");
   return await response.json();
 };
 
-export const downloadResumeUrl = (id: number) =>
-  `${API_BASE_URL}/api/jobs/resume/${id}/download/`;
+// Replace your existing uploadResume function with this:
+export const uploadResume = async (file: File, digitalSignature: string) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('digital_signature', digitalSignature); // <-- Send signature to backend
+
+  const response = await fetch(`${API_BASE_URL}api/jobs/resume/upload/`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  });
+  
+  // If the backend returns a 400 error, try to extract the message
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || errorData?.error || 'Upload failed');
+  }
+  return response.json();
+};
 
 export const deleteResume = async (id: number) => {
   const response = await fetch(`${API_BASE_URL}/api/jobs/resume/${id}/`, {
-    method: 'DELETE',
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to delete resume");
+};
+
+// Helper to trigger browser download
+// --- Helper to trigger browser download ---
+export const downloadResumeUrl = (id: number) => {
+  return `${API_BASE_URL}/api/jobs/resume/${id}/download/`;
+};
+
+// --- PROFILE APIs (Missing from your file) ---
+
+export const getMyProfile = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile/me/`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) throw new Error("Unauthorized");
+    throw new Error("Failed to fetch profile");
+  }
+  return await response.json();
+};
+
+export const updateMyProfile = async (profileData: any) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile/me/`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(profileData),
+  });
+
+  if (!response.ok) throw new Error("Failed to update profile");
+  return await response.json();
+};
+
+// --- E2EE CHAT API CALLS ---
+
+// 1. Get the list of available users to chat with
+export const getUsersList = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/users/`, {
     credentials: 'include',
   });
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(err || 'Delete failed');
-  }
-  return true;
+  if (!response.ok) throw new Error('Failed to fetch users');
+  return response.json();
+};
+
+// 2. Fetch a specific user's RSA Public Key
+export const getPublicKey = async (username: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/keys/${username}/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch public key');
+  return response.json();
+};
+
+// 3. Send an encrypted message
+export const sendEncryptedMessage = async (recipientId: number, encryptedContent: string, encryptedKey: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/messages/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      recipient: recipientId,
+      encrypted_content: encryptedContent,
+      encrypted_key: encryptedKey,
+    }),
+  });
+  if (!response.ok) throw new Error('Failed to send message');
+  return response.json();
+};
+
+// 4. Fetch your encrypted inbox
+export const getMessages = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/messages/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch messages');
+  return response.json();
+};
+
+export const getMyKeys = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/keys/me/`, { credentials: 'include' });
+  if (!response.ok) throw new Error('Failed to fetch your keys');
+  return response.json();
 };

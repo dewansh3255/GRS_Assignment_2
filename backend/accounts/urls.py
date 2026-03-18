@@ -10,6 +10,10 @@ from .views import (
     VerifyTOTPView,
     ProfileRetrieveUpdateView,
     AuthCheckView,
+    GetPublicKeyView,
+    MessageListCreateView,
+    UserListView,
+    GetMyKeysView,
 )
 
 urlpatterns = [
@@ -30,4 +34,13 @@ urlpatterns = [
     path('profile/<str:username>/', ProfileRetrieveUpdateView.as_view(), name='user_profile'),
     # simple check endpoint for frontend auth guard
     path('auth-check/', AuthCheckView.as_view(), name='auth_check'),
+
+    path('keys/upload/', UploadKeysView.as_view(), name='upload_keys'),
+    path('keys/me/', GetMyKeysView.as_view(), name='my_keys'),
+    path('keys/<str:username>/', GetPublicKeyView.as_view(), name='get_public_key'), # <-- ADD THIS
+    path('messages/', MessageListCreateView.as_view(), name='messages'),
+    path('users/', UserListView.as_view(), name='user_list'), # <-- ADD THIS
+
+
+    
 ]
