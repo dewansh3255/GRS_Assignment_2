@@ -442,3 +442,88 @@ export const changeUserRole = async (newRole: 'CANDIDATE' | 'RECRUITER') => {
   }
   return response.json();
 };
+
+// --- GROUP CHAT APIs ---
+
+export const getMyGroups = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch groups');
+  return response.json();
+};
+
+export const createGroup = async (name: string, members: {user_id: number, encrypted_key: string}[]) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ name, members }),
+  });
+  if (!response.ok) throw new Error('Failed to create group');
+  return response.json();
+};
+
+export const fetchGroupMessages = async (groupId: number) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/${groupId}/messages/`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch group messages');
+  return response.json();
+};
+
+export const sendGroupMessage = async (groupId: number, encryptedContent: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/${groupId}/messages/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ encrypted_content: encryptedContent }),
+  });
+  if (!response.ok) throw new Error('Failed to send group message');
+  return response.json();
+};
+
+// --- GROUP MANAGEMENT APIs ---
+
+export const addGroupMember = async (groupId: number, userId: number, encryptedKey: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/${groupId}/members/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ user_id: userId, encrypted_key: encryptedKey }),
+  });
+  if (!response.ok) throw new Error('Failed to add member');
+  return response.json();
+};
+
+export const removeGroupMember = async (groupId: number, userId: number) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/${groupId}/members/${userId}/`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to remove member');
+  return true;
+};
+
+export const promoteGroupMember = async (groupId: number, userId: number) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/${groupId}/members/${userId}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to promote member');
+  return response.json();
+};
+
+export const deleteGroup = async (groupId: number) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/groups/${groupId}/`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to delete group');
+  return true;
+};

@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import {
   getCompanies, createCompany, createJob,
-  getApplications, updateApplicationStatus, getMyProfile, getJobs, downloadApplicationResume
+  getApplications, updateApplicationStatus, getMyProfile, getJobs, downloadApplicationResume, getPublicKey
 } from '../services/api';
+
+import { verifyFileSignature } from '../utils/crypto';
 
 const STATUS_OPTIONS = ['APPLIED', 'REVIEWED', 'INTERVIEWED', 'REJECTED', 'OFFER'];
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -90,19 +92,70 @@ export default function Recruiter() {
     } catch { setError('Failed to update status.'); }
   };
 
-  const handleDownloadResume = (applicationId: number, applicantName: string) => {
-    setDownloadingResume(applicationId);
+  // const handleDownloadResume = (applicationId: number, applicantName: string) => {
+  //   setDownloadingResume(applicationId);
+  //   try {
+  //     const url = downloadApplicationResume(applicationId);
+  //     const link = document.createElement('a');
+  //     link.href = url;
+  //     link.download = `${applicantName}_resume.pdf`;
+  //     document.body.appendChild(link);
+  //     link.click();
+  //     document.body.removeChild(link);
+  //     setMessage(`Resume downloaded successfully!`);
+  //   } catch (err) {
+  //     setError('Failed to download resume.');
+  //   } finally {
+  //     setDownloadingResume(null);
+  //   }
+  // };
+
+  const handleDownloadResume = async (app: any) => {
+    setDownloadingResume(app.id);
     try {
-      const url = downloadApplicationResume(applicationId);
+      // 1. Get the download URL and fetch the raw bytes from the backend
+      const url = downloadApplicationResume(app.id);
+      
+      // We use fetch here to get the file buffer in memory before saving it to disk
+      const fileResponse = await fetch(url, { credentials: 'include' });
+      if (!fileResponse.ok) throw new Error("Failed to fetch file from server");
+      const fileBuffer = await fileResponse.arrayBuffer();
+
+      // 2. Fetch the Candidate's Public Key
+      const candidateKeys = await getPublicKey(app.applicant_username);
+
+      // 3. Cryptographic Verification
+      if (!app.digital_signature) {
+        alert("⚠️ Warning: No digital signature found for this resume.");
+      } else {
+        const isValid = await verifyFileSignature(
+          fileBuffer, 
+          app.digital_signature, 
+          candidateKeys.public_key
+        );
+
+        if (!isValid) {
+          alert("🚨 SECURITY ALERT: This resume has been tampered with! The digital signature does not match the file contents.");
+          setDownloadingResume(null);
+          return; // BLOCK THE DOWNLOAD
+        }
+        alert("✅ Signature Verified. File is authentic and untampered.");
+      }
+
+      // 4. Trigger the safe browser download
+      const blob = new Blob([fileBuffer], { type: 'application/pdf' });
+      const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `${applicantName}_resume.pdf`;
+      link.href = blobUrl;
+      link.download = `${app.applicant_username}_resume.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
       setMessage(`Resume downloaded successfully!`);
     } catch (err) {
-      setError('Failed to download resume.');
+      console.error(err);
+      setError('Failed to download or verify resume. Ensure keys are set up.');
     } finally {
       setDownloadingResume(null);
     }
@@ -307,7 +360,8 @@ export default function Recruiter() {
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' as const }}>
                         {app.resume && (
                           <button
-                            onClick={() => handleDownloadResume(app.id, app.applicant_username)}
+                            // onClick={() => handleDownloadResume(app.id, app.applicant_username)}
+                            onClick={() => handleDownloadResume(app)}
                             disabled={downloadingResume === app.id}
                             style={{
                               background: '#3b82f6', color: '#fff', border: 'none',

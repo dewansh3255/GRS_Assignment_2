@@ -31,14 +31,32 @@ class JobSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
+# class ApplicationSerializer(serializers.ModelSerializer):
+#     applicant_username = serializers.ReadOnlyField(source='applicant.username')
+#     job_title = serializers.ReadOnlyField(source='job.title')
+
+#     class Meta:
+#         model = Application
+#         fields = [
+#             'id', 'applicant', 'applicant_username', 'job', 'job_title','digital_signature',
+#             'resume', 'cover_note', 'status', 'recruiter_notes', 'applied_at', 'updated_at'
+#         ]
+#         read_only_fields = ['applicant', 'applied_at', 'updated_at']
+
 class ApplicationSerializer(serializers.ModelSerializer):
     applicant_username = serializers.ReadOnlyField(source='applicant.username')
     job_title = serializers.ReadOnlyField(source='job.title')
+    
+    # 🚨 THIS IS THE LINE THAT WAS MISSING 🚨
+    # It tells Django: "Don't look on the Application model, look at the linked Resume model!"
+    digital_signature = serializers.ReadOnlyField(source='resume.digital_signature')
 
     class Meta:
         model = Application
         fields = [
             'id', 'applicant', 'applicant_username', 'job', 'job_title',
-            'resume', 'cover_note', 'status', 'recruiter_notes', 'applied_at', 'updated_at'
+            'resume', 
+            'digital_signature', # Now this will work perfectly
+            'cover_note', 'status', 'recruiter_notes', 'applied_at', 'updated_at'
         ]
         read_only_fields = ['applicant', 'applied_at', 'updated_at']

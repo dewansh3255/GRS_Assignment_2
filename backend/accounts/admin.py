@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DefaultUserAdmin
-from .models import User, UserKeys, Profile, Message
+from .models import User, UserKeys, Profile, Message,ChatGroup, GroupMember, GroupMessage
 from .models import AuditLog
 
 @admin.register(User)
@@ -41,3 +41,23 @@ class MessageAdmin(admin.ModelAdmin):
 class AuditLogAdmin(admin.ModelAdmin):
     list_display = ('timestamp', 'action', 'user', 'current_hash')
     readonly_fields = ('action', 'user', 'details', 'timestamp', 'prev_hash', 'current_hash')
+
+
+@admin.register(ChatGroup)
+class ChatGroupAdmin(admin.ModelAdmin):
+    list_display = ('name', 'created_at')
+    search_fields = ('name',)
+
+@admin.register(GroupMember)
+class GroupMemberAdmin(admin.ModelAdmin):
+    list_display = ('user', 'group', 'role', 'joined_at')
+    list_filter = ('role', 'group')
+    # Prevent superuser from tampering with the key
+    readonly_fields = ('encrypted_group_key',)
+
+@admin.register(GroupMessage)
+class GroupMessageAdmin(admin.ModelAdmin):
+    list_display = ('sender', 'group', 'timestamp')
+    list_filter = ('group',)
+    # Prevent superuser from reading or tampering with the encrypted content
+    readonly_fields = ('encrypted_content',)

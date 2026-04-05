@@ -244,3 +244,172 @@ export const signFileDocument = async (file: File, signingKey: CryptoKey): Promi
 
   return arrayBufferToBase64(signatureBuffer);
 };
+
+// --- PHASE 4: E2EE GROUP CHAT CRYPTOGRAPHY ---
+
+/**
+ * 1. Generate the Shared AES Key for a new group.
+ * This happens once when the Owner creates the group.
+ */
+export const generateGroupKey = async (): Promise<CryptoKey> => {
+  return await window.crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true, // Must be true so we can export and wrap it for members
+    ["encrypt", "decrypt"]
+  );
+};
+
+/**
+ * 2. Wrap the Shared AES Key for multiple users.
+ * Takes the raw group key and an array of objects containing user IDs and their Base64 Public Keys.
+ */
+export const wrapGroupKeyForMembers = async (
+  groupKey: CryptoKey,
+  memberData: { userId: number; publicKeyBase64: string }[]
+) => {
+  // Export the raw AES key bytes
+  const exportedGroupKey = await window.crypto.subtle.exportKey("raw", groupKey);
+  const wrappedKeys = [];
+
+  for (const member of memberData) {
+    // Import each recipient's RSA public key
+    const publicKeyBuffer = base64ToArrayBuffer(member.publicKeyBase64);
+    const recipientPublicKey = await window.crypto.subtle.importKey(
+      "spki",
+      publicKeyBuffer,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+
+    // Encrypt the AES group key with their RSA public key
+    const encryptedKeyBuffer = await window.crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      recipientPublicKey,
+      exportedGroupKey
+    );
+
+    // Push to the array in the exact format the Django backend expects
+    wrappedKeys.push({
+      user_id: member.userId,
+      encrypted_key: arrayBufferToBase64(encryptedKeyBuffer)
+    });
+  }
+
+  return wrappedKeys;
+};
+
+/**
+ * 3. Unwrap the Group Key using your own RSA Private Key.
+ * Runs when you open a group chat to decrypt the Shared AES Key assigned to you.
+ */
+export const unwrapGroupKey = async (
+  encryptedGroupKeyBase64: string,
+  myPrivateKey: CryptoKey
+): Promise<CryptoKey> => {
+  const encryptedKeyBuffer = base64ToArrayBuffer(encryptedGroupKeyBase64);
+  
+  // Decrypt the AES key using your RSA Private Key
+  const rawAesKey = await window.crypto.subtle.decrypt(
+    { name: "RSA-OAEP" },
+    myPrivateKey,
+    encryptedKeyBuffer
+  );
+
+  // Import it back as a usable AES-GCM CryptoKey
+  return await window.crypto.subtle.importKey(
+    "raw",
+    rawAesKey,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+};
+
+/**
+ * 4. Encrypt a Group Message.
+ * Symmetrically encrypts the plaintext using the Shared Group Key.
+ */
+export const encryptGroupMessage = async (plaintext: string, groupKey: CryptoKey) => {
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const encodedPlaintext = new TextEncoder().encode(plaintext);
+  
+  const ciphertext = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv },
+    groupKey,
+    encodedPlaintext
+  );
+
+  // Combine IV and Ciphertext for storage
+  const combinedCiphertext = new Uint8Array(iv.length + ciphertext.byteLength);
+  combinedCiphertext.set(iv, 0);
+  combinedCiphertext.set(new Uint8Array(ciphertext), iv.length);
+
+  return arrayBufferToBase64(combinedCiphertext.buffer); // Returns `encrypted_content`
+};
+
+/**
+ * 5. Decrypt a Group Message.
+ * Symmetrically decrypts the ciphertext using the unwrapped Shared Group Key.
+ */
+export const decryptGroupMessage = async (
+  encryptedContentBase64: string,
+  groupKey: CryptoKey
+) => {
+  const combinedCiphertextBuffer = base64ToArrayBuffer(encryptedContentBase64);
+  const iv = combinedCiphertextBuffer.slice(0, 12);
+  const ciphertext = combinedCiphertextBuffer.slice(12);
+
+  const decryptedContent = await window.crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: new Uint8Array(iv) },
+    groupKey,
+    ciphertext
+  );
+
+  return new TextDecoder().decode(decryptedContent);
+};
+
+/**
+ * 3. Verify a File's Digital Signature (Admin Requirement)
+ * Ensures the file hasn't been tampered with since the candidate signed it.
+ */
+export const verifyFileSignature = async (
+  fileBuffer: ArrayBuffer,
+  signatureBase64: string,
+  publicKeyBase64: string
+): Promise<boolean> => {
+  try {
+    // 1. Convert the Candidate's Base64 Public Key to a buffer
+    const publicKeyBuffer = base64ToArrayBuffer(publicKeyBase64);
+    
+    // 2. Import the key specifically for RSA-PSS verification
+    const publicKey = await window.crypto.subtle.importKey(
+      "spki",
+      publicKeyBuffer,
+      { name: "RSA-PSS", hash: "SHA-256" },
+      true, // Can be true or false, we don't need to re-export it
+      ["verify"]
+    );
+
+    // 3. Convert the Base64 signature back to raw bytes
+    const signatureBuffer = base64ToArrayBuffer(signatureBase64);
+
+    // 4. Cryptographically verify the signature against the raw file bytes
+    // The Web Crypto API will automatically re-hash the fileBuffer with SHA-256 
+    // and compare it to the decrypted signature.
+    const isValid = await window.crypto.subtle.verify(
+      {
+        name: "RSA-PSS",
+        saltLength: 32, // MUST perfectly match the saltLength you used in signFileDocument
+      },
+      publicKey,
+      signatureBuffer,
+      fileBuffer
+    );
+
+    return isValid;
+  } catch (error) {
+    console.error("Signature verification process failed:", error);
+    return false; // If the math throws an error, it's definitely tampered/invalid
+  }
+};

@@ -117,6 +117,75 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"[{self.timestamp}] {self.action} by {self.user}"
+    
+class ChatGroup(models.Model):
+    """
+    MEMBER B: E2EE Group Chat - Core Group Info
+    Stores the basic metadata of the group.
+    """
+    name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class GroupMember(models.Model):
+    """
+    MEMBER B: E2EE Group Chat - Membership & Key Distribution
+    Each member gets their own copy of the Shared AES Key, 
+    which is encrypted with their specific RSA Public Key.
+    """
+    ROLE_CHOICES = (
+        ('owner', 'Owner'),
+        ('admin', 'Admin'),
+        ('member', 'Member'),
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='group_memberships'
+    )
+    group = models.ForeignKey(
+        ChatGroup, 
+        on_delete=models.CASCADE, 
+        related_name='members'
+    )
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
+    
+    # The Shared Group AES Key, encrypted asymmetrically with THIS user's RSA Public Key
+    encrypted_group_key = models.TextField(help_text="AES key encrypted with User's RSA Public Key")
+    
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'group')
+
+    def __str__(self):
+        return f"{self.user.username} - {self.group.name} ({self.role})"
+
+class GroupMessage(models.Model):
+    """
+    MEMBER B: E2EE Group Chat - Encrypted Messages
+    The message text is encrypted ONCE with the Shared Group AES Key.
+    """
+    group = models.ForeignKey(
+        ChatGroup, 
+        on_delete=models.CASCADE, 
+        related_name='messages'
+    )
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='sent_group_messages'
+    )
+    
+    # The actual message text, encrypted symmetrically with the Shared AES-GCM key
+    encrypted_content = models.TextField(help_text="Message encrypted with Shared Group AES Key")
+    
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Group message in {self.group.name} from {self.sender.username}"
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_user_profile(sender, instance, created, **kwargs):

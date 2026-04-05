@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import UserKeys
+from .models import UserKeys,ChatGroup, GroupMember, GroupMessage
 from .models import Profile
 
 User = get_user_model()
@@ -72,3 +72,27 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = ['id', 'sender', 'sender_username', 'recipient', 'encrypted_content', 'encrypted_key', 'timestamp']
         read_only_fields = ['sender', 'timestamp']
+
+
+class GroupMemberSerializer(serializers.ModelSerializer):
+    username = serializers.ReadOnlyField(source='user.username')
+    
+    class Meta:
+        model = GroupMember
+        fields = ['id', 'user', 'username', 'group', 'role', 'encrypted_group_key', 'joined_at']
+        read_only_fields = ['role', 'joined_at']
+
+class ChatGroupSerializer(serializers.ModelSerializer):
+    members = GroupMemberSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ChatGroup
+        fields = ['id', 'name', 'created_at','members']
+
+class GroupMessageSerializer(serializers.ModelSerializer):
+    sender_username = serializers.ReadOnlyField(source='sender.username')
+    
+    class Meta:
+        model = GroupMessage
+        fields = ['id', 'group', 'sender', 'sender_username', 'encrypted_content', 'timestamp']
+        read_only_fields = ['sender', 'timestamp', 'group']
