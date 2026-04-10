@@ -429,12 +429,12 @@ export const getAuditLogs = async () => {
 };
 
 // --- USER ROLE API ---
-export const changeUserRole = async (newRole: 'CANDIDATE' | 'RECRUITER') => {
+export const changeUserRole = async (newRole: 'CANDIDATE' | 'RECRUITER', totpCode: string) => {
   const response = await fetch(`${API_BASE_URL}/api/auth/role/change/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ role: newRole }),
+    body: JSON.stringify({ role: newRole, totp_code: totpCode }),
   });
   if (!response.ok) {
     const err = await response.json().catch(() => null);
@@ -684,3 +684,104 @@ export const uploadProfilePicture = async (file: File) => {
   }
   return response.json();
 };
+
+// =====================================================
+// MEMBER 2: POST MANAGEMENT & ACCOUNT SECURITY
+// =====================================================
+
+/** Delete a post by ID (author only) */
+export const deletePost = async (postId: number) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/feed/${postId}/`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error || 'Failed to delete post');
+  }
+  return true;
+};
+
+/**
+ * MEMBER 2: Change password with TOTP verification.
+ * Requires old password, new password, and live authenticator code.
+ */
+export const changePassword = async (oldPassword: string, newPassword: string, totpCode: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/account/password-change/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword, totp_code: totpCode }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error || 'Failed to change password');
+  }
+  return response.json();
+};
+
+/**
+ * MEMBER 2: Permanently delete account with password + TOTP verification.
+ */
+export const deleteAccount = async (password: string, totpCode: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/account/delete/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ password, totp_code: totpCode }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error || 'Failed to delete account');
+  }
+  return response.json();
+};
+
+// =====================================================
+// MEMBER 3: BACKUP CODES (2FA Recovery)
+// =====================================================
+
+/**
+ * MEMBER 3: Generate 8 new backup codes (requires TOTP). Old codes are invalidated.
+ * Returns plaintext codes — shown only once.
+ */
+export const generateBackupCodes = async (totpCode: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/backup-codes/generate/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ totp_code: totpCode }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error || 'Failed to generate backup codes');
+  }
+  return response.json(); // { codes: string[], count: number }
+};
+
+/** MEMBER 3: Get remaining unused backup code count */
+export const getBackupCodes = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/backup-codes/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch backup code info');
+  return response.json(); // { total: number, remaining: number }
+};
+
+/**
+ * MEMBER 3: Login using a backup code instead of TOTP.
+ * Used during the login flow when user has lost access to their authenticator.
+ */
+export const verifyBackupCode = async (userId: number, backupCode: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/backup-codes/verify/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ user_id: userId, backup_code: backupCode }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error || 'Invalid backup code');
+  }
+  return response.json();
+};

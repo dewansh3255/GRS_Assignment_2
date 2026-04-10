@@ -9,10 +9,12 @@ from .serializers import UserRegistrationSerializer, UserKeysSerializer, Profile
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 import pyotp
+import secrets
+import hashlib
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import authenticate
 from .audit import create_audit_log
-from .models import AuditLog, ChatGroup, GroupMember, GroupMessage
+from .models import AuditLog, ChatGroup, GroupMember, GroupMessage, BackupCode
 from django.db import transaction
 from .serializers import ChatGroupSerializer, GroupMessageSerializer, GroupMemberSerializer
 
@@ -250,17 +252,36 @@ class GetMyKeysView(APIView):
 class ChangeUserRoleView(APIView):
     """
     Allows authenticated users to change their role between CANDIDATE and RECRUITER.
-    Users cannot self-assign ADMIN role (only Django admin can do that).
+    Requires TOTP verification as this is a high-risk action.
+    MEMBER 3: TOTP enforcement on role change.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         new_role = request.data.get('role', '').upper()
+        totp_code = request.data.get('totp_code', '').strip()
 
         # Only allow switching between CANDIDATE and RECRUITER
         if new_role not in ['CANDIDATE', 'RECRUITER']:
             return Response(
                 {'error': 'Invalid role. Must be CANDIDATE or RECRUITER.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # MEMBER 3: Verify TOTP for high-risk action
+        if not totp_code:
+            return Response(
+                {'error': 'TOTP code is required for role change.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        totp = pyotp.TOTP(request.user.totp_secret)
+        if not totp.verify(totp_code):
+            create_audit_log('ROLE_CHANGE_FAILED', request.user, {
+                'reason': 'invalid_totp',
+                'attempted_role': new_role
+            })
+            return Response(
+                {'error': 'Invalid authenticator code. Role change denied.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -788,6 +809,18 @@ class FeedView(APIView):
             'is_mine': True,
         }, status=status.HTTP_201_CREATED)
 
+    def delete(self, request, post_id):
+        """
+        MEMBER 2: Delete a post — only the author can delete their own post.
+        DELETE /api/auth/feed/<post_id>/
+        """
+        post = get_object_or_404(Post, id=post_id)
+        if post.author != request.user:
+            return Response({'error': 'You can only delete your own posts.'}, status=status.HTTP_403_FORBIDDEN)
+        post.delete()
+        create_audit_log('POST_DELETED', request.user, {'post_id': post_id})
+        return Response({'message': 'Post deleted.'}, status=status.HTTP_204_NO_CONTENT)
+
 
 class ProfileViewersView(APIView):
     """
@@ -1002,3 +1035,225 @@ class NetworkGraphView(APIView):
                 unique_edges.append({'from': a, 'to': b})
 
         return Response({'nodes': nodes, 'edges': unique_edges})
+
+
+# ====================================================================
+# MEMBER 2: PASSWORD CHANGE & ACCOUNT DELETION (High-Risk Actions with TOTP)
+# ====================================================================
+
+class PasswordChangeView(APIView):
+    """
+    MEMBER 2: Secure password change with TOTP verification.
+    
+    Background: Password changes are critical security events. An attacker who gains
+    brief session access (e.g., via a shared computer) must be stopped from
+    permanently taking over the account. Requiring a live TOTP code ensures the
+    user physically has their authenticator device — enforcing 2-factor confirmation.
+    
+    POST /api/auth/account/password-change/
+    Body: { old_password, new_password, totp_code }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        old_password = request.data.get('old_password', '')
+        new_password = request.data.get('new_password', '')
+        totp_code = request.data.get('totp_code', '').strip()
+
+        if not all([old_password, new_password, totp_code]):
+            return Response({'error': 'old_password, new_password, and totp_code are required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 8:
+            return Response({'error': 'New password must be at least 8 characters.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify old password
+        user = authenticate(username=request.user.username, password=old_password)
+        if not user:
+            create_audit_log('PASSWORD_CHANGE_FAILED', request.user, {'reason': 'wrong_old_password'})
+            return Response({'error': 'Current password is incorrect.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify TOTP — prevents session hijack attacks
+        totp = pyotp.TOTP(request.user.totp_secret)
+        if not totp.verify(totp_code):
+            create_audit_log('PASSWORD_CHANGE_FAILED', request.user, {'reason': 'invalid_totp'})
+            return Response({'error': 'Invalid authenticator code. Password change denied.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # All checks passed — update password
+        request.user.set_password(new_password)
+        request.user.save()
+        create_audit_log('PASSWORD_CHANGED', request.user, {})
+
+        return Response({'message': 'Password changed successfully. Please log in again.'}, status=status.HTTP_200_OK)
+
+
+class AccountDeleteView(APIView):
+    """
+    MEMBER 2: Permanent account deletion with TOTP verification.
+    
+    Background: Account deletion is irreversible. Without strong confirmation,
+    an XSS-injected script or CSRF attack could trigger deletion silently.
+    TOTP verification + password confirmation provide a two-factor barrier
+    that cannot be bypassed even with a valid session cookie.
+    
+    POST /api/auth/account/delete/
+    Body: { password, totp_code }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        password = request.data.get('password', '')
+        totp_code = request.data.get('totp_code', '').strip()
+
+        if not all([password, totp_code]):
+            return Response({'error': 'password and totp_code are required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify password
+        user = authenticate(username=request.user.username, password=password)
+        if not user:
+            return Response({'error': 'Password is incorrect.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify TOTP
+        totp = pyotp.TOTP(request.user.totp_secret)
+        if not totp.verify(totp_code):
+            create_audit_log('ACCOUNT_DELETE_FAILED', request.user, {'reason': 'invalid_totp'})
+            return Response({'error': 'Invalid authenticator code. Account deletion denied.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        create_audit_log('ACCOUNT_DELETED', request.user, {'username': request.user.username})
+        username = request.user.username
+        request.user.delete()
+
+        response = Response({'message': f'Account "{username}" has been permanently deleted.'},
+                            status=status.HTTP_200_OK)
+        # Clear auth cookies
+        response.delete_cookie('access_token')
+        response.delete_cookie('refresh_token')
+        return response
+
+
+# ====================================================================
+# MEMBER 3: BACKUP CODES (2FA Recovery)
+# ====================================================================
+
+class GenerateBackupCodesView(APIView):
+    """
+    MEMBER 3: Generate one-time backup codes for 2FA account recovery.
+    
+    Background: TOTP requires a physical device. If a user loses their phone,
+    they face permanent account lockout. Backup codes (similar to GitHub/Google's
+    recovery codes) solve this by providing 8 single-use codes stored as
+    SHA-256 hashes. The plaintext is shown only once (never stored in DB)
+    — if lost, codes must be regenerated (which invalidates old ones).
+    
+    POST /api/auth/backup-codes/generate/
+    Requires TOTP verification to prevent unauthorized code regeneration.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        totp_code = request.data.get('totp_code', '').strip()
+
+        # Verify TOTP before generating codes (prevents unauthorized regeneration)
+        if not totp_code:
+            return Response({'error': 'totp_code is required to generate backup codes.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        totp = pyotp.TOTP(request.user.totp_secret)
+        if not totp.verify(totp_code):
+            return Response({'error': 'Invalid authenticator code.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Invalidate all existing backup codes for this user
+        BackupCode.objects.filter(user=request.user).delete()
+
+        # Generate 8 new unique codes (format: XXXX-XXXX-XXXX)
+        plaintext_codes = []
+        for _ in range(8):
+            raw = secrets.token_hex(6).upper()  # e.g., 'A3F9C2B1E4D7'
+            formatted = f"{raw[:4]}-{raw[4:8]}-{raw[8:]}"  # e.g., 'A3F9-C2B1-E4D7'
+            code_hash = hashlib.sha256(formatted.encode()).hexdigest()
+            BackupCode.objects.create(user=request.user, code_hash=code_hash)
+            plaintext_codes.append(formatted)
+
+        create_audit_log('BACKUP_CODES_GENERATED', request.user, {'count': 8})
+
+        return Response({
+            'message': 'Backup codes generated. Store them safely — they will not be shown again.',
+            'codes': plaintext_codes,
+            'count': len(plaintext_codes)
+        }, status=status.HTTP_201_CREATED)
+
+
+class ListBackupCodesView(APIView):
+    """
+    MEMBER 3: Returns the count of remaining unused backup codes.
+    Does NOT return the actual codes (they are hashed in DB).
+    
+    GET /api/auth/backup-codes/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        total = BackupCode.objects.filter(user=request.user).count()
+        unused = BackupCode.objects.filter(user=request.user, is_used=False).count()
+        return Response({'total': total, 'remaining': unused})
+
+
+class VerifyBackupCodeView(APIView):
+    """
+    MEMBER 3: Login fallback using a backup code instead of TOTP.
+    
+    Background: This endpoint is called during the login flow when a user
+    cannot access their authenticator app. The backup code is hashed and
+    compared against stored hashes. On success, the code is marked as used
+    (single-use) and JWT cookies are issued — identical to the TOTP flow.
+    
+    POST /api/auth/backup-codes/verify/
+    Body: { user_id, backup_code }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        user_id = request.data.get('user_id')
+        backup_code = request.data.get('backup_code', '').strip().upper()
+
+        if not user_id or not backup_code:
+            return Response({'error': 'user_id and backup_code are required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user = get_object_or_404(User, id=user_id)
+
+        # Hash the submitted code and look for a match
+        code_hash = hashlib.sha256(backup_code.encode()).hexdigest()
+        match = BackupCode.objects.filter(
+            user=user, code_hash=code_hash, is_used=False
+        ).first()
+
+        if not match:
+            create_audit_log('BACKUP_CODE_FAILED', user, {'reason': 'invalid_or_used'})
+            return Response({'error': 'Invalid or already-used backup code.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Mark this code as used (single-use enforced)
+        match.is_used = True
+        match.save()
+
+        create_audit_log('LOGIN_WITH_BACKUP_CODE', user, {'backup_code_id': match.id})
+
+        # Issue JWT cookies — same as normal TOTP login
+        refresh = RefreshToken.for_user(user)
+        response = Response(
+            {'message': 'Logged in with backup code.', 'access_token': str(refresh.access_token)},
+            status=status.HTTP_200_OK
+        )
+        response.set_cookie('access_token', str(refresh.access_token),
+                            httponly=True, secure=True, samesite='Lax')
+        response.set_cookie('refresh_token', str(refresh),
+                            httponly=True, secure=True, samesite='Lax')
+        return response

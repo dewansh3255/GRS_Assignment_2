@@ -33,6 +33,13 @@ from .views import (
     ConnectionSuggestionsView,
     ProfilePictureUploadView,
     NetworkGraphView,
+    # Member 2: Account Security
+    PasswordChangeView,
+    AccountDeleteView,
+    # Member 3: Backup Codes
+    GenerateBackupCodesView,
+    ListBackupCodesView,
+    VerifyBackupCodeView,
 )
 
 urlpatterns = [
@@ -78,7 +85,8 @@ urlpatterns = [
     path('groups/<int:group_id>/members/<int:user_id>/', GroupMemberManageView.as_view(), name='group-manage-member'),
     path('groups/<int:group_id>/messages/', GroupMessageListCreateView.as_view(), name='group-messages'),
 
-    # Member 1: Social Feed
+    # Member 1: Social Feed — specific post DELETE before generic feed
+    path('feed/<int:post_id>/', FeedView.as_view(), name='feed-post-delete'),
     path('feed/', FeedView.as_view(), name='feed'),
 
     # Member 1: Connections — specific before generic
@@ -92,4 +100,13 @@ urlpatterns = [
     path('notifications/', NotificationListView.as_view(), name='notifications'),
     path('notifications/read-all/', MarkNotificationReadView.as_view(), name='notifications_read_all'),
     path('notifications/<int:pk>/read/', MarkNotificationReadView.as_view(), name='notification_read'),
+
+    # Member 2: Account Security (High-Risk Actions with TOTP)
+    path('account/password-change/', PasswordChangeView.as_view(), name='password_change'),
+    path('account/delete/', AccountDeleteView.as_view(), name='account_delete'),
+
+    # Member 3: Backup Codes (2FA Recovery)
+    path('backup-codes/', ListBackupCodesView.as_view(), name='backup_codes_list'),
+    path('backup-codes/generate/', GenerateBackupCodesView.as_view(), name='backup_codes_generate'),
+    path('backup-codes/verify/', VerifyBackupCodeView.as_view(), name='backup_codes_verify'),
 ]
