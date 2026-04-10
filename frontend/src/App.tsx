@@ -8,7 +8,12 @@ import Applications from './pages/Applications';
 import Recruiter from './pages/Recruiter';
 import AdminPanel from './pages/AdminPanel';
 import Settings from './pages/Settings';
+import People from './pages/People';
+import ProfilePage from './pages/Profile';
+import MyProfile from './pages/MyProfile';
+import NetworkGraph from './pages/NetworkGraph';
 import { API_BASE_URL } from './services/api';
+import { CryptoProvider } from './contexts/CryptoContext';
 
 function PrivateRoute({ children }: { children: JSX.Element }) {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -29,19 +34,25 @@ function PrivateRoute({ children }: { children: JSX.Element }) {
 
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Register />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-        <Route path="/jobs" element={<PrivateRoute><Jobs /></PrivateRoute>} />
-        <Route path="/applications" element={<PrivateRoute><Applications /></PrivateRoute>} />
-        <Route path="/recruiter" element={<PrivateRoute><Recruiter /></PrivateRoute>} />
-        <Route path="/admin-panel" element={<PrivateRoute><AdminPanel /></PrivateRoute>} />
-        <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </Router>
+    <CryptoProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<Register />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/jobs" element={<PrivateRoute><Jobs /></PrivateRoute>} />
+          <Route path="/applications" element={<PrivateRoute><Applications /></PrivateRoute>} />
+          <Route path="/recruiter" element={<PrivateRoute><Recruiter /></PrivateRoute>} />
+          <Route path="/admin-panel" element={<PrivateRoute><AdminPanel /></PrivateRoute>} />
+          <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
+          <Route path="/people" element={<PrivateRoute><People /></PrivateRoute>} />
+          <Route path="/profile/:username" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
+          <Route path="/my-profile" element={<PrivateRoute><MyProfile /></PrivateRoute>} />
+          <Route path="/network-graph" element={<PrivateRoute><NetworkGraph /></PrivateRoute>} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </Router>
+    </CryptoProvider>
   );
 }
 

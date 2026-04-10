@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import UserKeys,ChatGroup, GroupMember, GroupMessage
-from .models import Profile
+from django.db.models import Q
+from .models import UserKeys, ChatGroup, GroupMember, GroupMessage, Connection, Notification
+from .models import Profile, Message
 
 User = get_user_model()
 
@@ -29,29 +30,42 @@ class UserKeysSerializer(serializers.ModelSerializer):
 
 class ProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
-    role = serializers.CharField(source='user.role', read_only=True)  # ADD THIS
+    role = serializers.CharField(source='user.role', read_only=True)
+    profile_picture_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
         fields = [
-            'username', 'role', 'headline', 'bio', 'location', 'skills',  # ADD role here
-            'is_headline_public', 'is_bio_public', 'is_location_public', 'is_skills_public'
+            'username', 'role', 'headline', 'bio', 'location', 'skills',
+            'education', 'experience', 'profile_picture_url',
+            'is_headline_public', 'is_bio_public', 'is_location_public',
+            'is_skills_public', 'is_education_public', 'is_experience_public',
+            'is_view_history_public',
         ]
 
+    def get_profile_picture_url(self, obj):
+        if obj.profile_picture:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.profile_picture.url)
+            return obj.profile_picture.url
+        return None
+
     def to_representation(self, instance):
-        # 1. Get the standard data dictionary
         data = super().to_representation(instance)
-        
-        # 2. Find out who is asking for the profile
         request = self.context.get('request')
 
-        # 3. If the user is looking at their OWN profile, show them everything
+        # Owner always sees everything
         if request and request.user == instance.user:
             return data
 
-        # 4. If someone else is looking, apply the privacy filters!
-        # (Note: In Week 4, Member A will add an "is_connected" check here)
-        is_connected = False # Defaulting to False until connections are built
+        # Real connection check (replaces the old False stub)
+        is_connected = False
+        if request and request.user.is_authenticated:
+            is_connected = Connection.objects.filter(
+                Q(sender=request.user, receiver=instance.user, status='ACCEPTED') |
+                Q(sender=instance.user, receiver=request.user, status='ACCEPTED')
+            ).exists()
 
         if not instance.is_headline_public and not is_connected:
             data.pop('headline', None)
@@ -61,9 +75,14 @@ class ProfileSerializer(serializers.ModelSerializer):
             data.pop('location', None)
         if not instance.is_skills_public and not is_connected:
             data.pop('skills', None)
+        if not instance.is_education_public and not is_connected:
+            data.pop('education', None)
+        if not instance.is_experience_public and not is_connected:
+            data.pop('experience', None)
 
         return data
 from .models import Message
+
 
 class MessageSerializer(serializers.ModelSerializer):
     sender_username = serializers.ReadOnlyField(source='sender.username')
@@ -96,3 +115,27 @@ class GroupMessageSerializer(serializers.ModelSerializer):
         model = GroupMessage
         fields = ['id', 'group', 'sender', 'sender_username', 'encrypted_content', 'timestamp']
         read_only_fields = ['sender', 'timestamp', 'group']
+
+
+# --- MEMBER 1: SOCIAL SERIALIZERS ---
+
+class ConnectionSerializer(serializers.ModelSerializer):
+    sender_username = serializers.ReadOnlyField(source='sender.username')
+    receiver_username = serializers.ReadOnlyField(source='receiver.username')
+
+    class Meta:
+        model = Connection
+        fields = ['id', 'sender', 'sender_username', 'receiver', 'receiver_username', 'status', 'created_at']
+        read_only_fields = ['sender', 'status', 'created_at']
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    sender_username = serializers.ReadOnlyField(source='sender.username')
+
+    class Meta:
+        model = Notification
+        fields = [
+            'id', 'notif_type', 'message', 'sender_username',
+            'is_read', 'created_at', 'related_connection_id',
+        ]
+        read_only_fields = ['notif_type', 'message', 'sender_username', 'created_at', 'related_connection_id']

@@ -403,6 +403,34 @@ class ProfileView(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
 
 
+class Notification(models.Model):
+    """
+    MEMBER 1: In-app notifications for social activity.
+    """
+    TYPE_CHOICES = [
+        ('CONNECTION_REQUEST', 'Connection Request'),
+        ('CONNECTION_ACCEPTED', 'Connection Accepted'),
+        ('NEW_POST', 'New Post from Connection'),
+    ]
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='sent_notifications')
+    notif_type = models.CharField(max_length=30, choices=TYPE_CHOICES)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # For CONNECTION_REQUEST: the Connection.id so the recipient can accept/reject inline
+    related_connection_id = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Notif({self.notif_type}) → {self.recipient.username}"
+
+
 # --- MEMBER 3: SECURITY MODELS ---
 class BackupCode(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='backup_codes')

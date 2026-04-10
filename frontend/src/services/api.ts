@@ -527,3 +527,160 @@ export const deleteGroup = async (groupId: number) => {
   if (!response.ok) throw new Error('Failed to delete group');
   return true;
 };
+
+
+// =====================================================
+// MEMBER 1: SOCIAL NETWORK APIs
+// =====================================================
+
+/** Search users by username or headline (min 2 chars) */
+export const searchUsers = async (q: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/users/search/?q=${encodeURIComponent(q)}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to search users');
+  return response.json();
+};
+
+/** Fetch any user's public profile (privacy-filtered by backend) */
+export const getPublicProfile = async (username: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile/${username}/public/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Profile not found');
+  return response.json();
+};
+
+/** Get my connections + pending requests */
+export const getMyConnections = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/connections/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch connections');
+  return response.json();
+};
+
+/** Send a connection request to a user */
+export const sendConnectionRequest = async (username: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/connections/send/${username}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error || 'Failed to send request');
+  }
+  return response.json();
+};
+
+/** Accept or reject a pending connection request */
+export const respondToConnection = async (connectionId: number, action: 'ACCEPT' | 'REJECT') => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/connections/${connectionId}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ action }),
+  });
+  if (!response.ok) throw new Error('Failed to respond to connection');
+  return response.json();
+};
+
+/** Remove an accepted connection */
+export const removeConnection = async (connectionId: number) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/connections/${connectionId}/`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to remove connection');
+  return true;
+};
+
+/** Get the social feed (posts from connections + own) */
+export const getFeed = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/feed/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch feed');
+  return response.json();
+};
+
+/** Create a new post */
+export const createPost = async (content: string) => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/feed/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) throw new Error('Failed to create post');
+  return response.json();
+};
+
+/** Get who recently viewed my profile */
+export const getMyProfileViewers = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile/me/viewers/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch viewers');
+  return response.json();
+};
+
+/** Get notifications + unread count (polls every 15s in Navbar) */
+export const getNotifications = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/notifications/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch notifications');
+  return response.json();
+};
+
+/** Mark a single notification as read */
+export const markNotificationRead = async (id: number) => {
+  await fetch(`${API_BASE_URL}/api/auth/notifications/${id}/read/`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+};
+
+/** Mark all notifications as read */
+export const markAllNotificationsRead = async () => {
+  await fetch(`${API_BASE_URL}/api/auth/notifications/read-all/`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+};
+
+/** Get 2nd-degree connection suggestions (BFS, sorted by mutual count) */
+export const getConnectionSuggestions = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/connections/suggestions/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch suggestions');
+  return response.json();
+};
+
+/** Get raw graph data: nodes + edges for the network visualisation */
+export const getNetworkGraph = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/connections/graph/`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to fetch graph');
+  return response.json();
+};
+
+/** Upload or replace profile picture (multipart) */
+export const uploadProfilePicture = async (file: File) => {
+  const form = new FormData();
+  form.append('picture', file);
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile/me/picture/`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error || 'Failed to upload picture');
+  }
+  return response.json();
+};

@@ -1,12 +1,11 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-# Import all our custom views
 from .views import (
-    RegisterView, 
-    CustomLoginView, 
-    UploadKeysView, 
-    GenerateTOTPURIView, 
+    RegisterView,
+    CustomLoginView,
+    UploadKeysView,
+    GenerateTOTPURIView,
     VerifyTOTPView,
     ProfileRetrieveUpdateView,
     AuthCheckView,
@@ -17,45 +16,80 @@ from .views import (
     ChangeUserRoleView,
     AuditLogListView,
     GroupListCreateView,
-    GroupDetailView, 
-    GroupMemberManageView, 
-    GroupMessageListCreateView
+    GroupDetailView,
+    GroupMemberManageView,
+    GroupMessageListCreateView,
+    # Member 1: Social
+    UserSearchView,
+    PublicProfileView,
+    ConnectionListView,
+    SendConnectionRequestView,
+    ConnectionDetailView,
+    FeedView,
+    ProfileViewersView,
+    # Member 1: Additional
+    NotificationListView,
+    MarkNotificationReadView,
+    ConnectionSuggestionsView,
+    ProfilePictureUploadView,
+    NetworkGraphView,
 )
 
 urlpatterns = [
     # Core Auth
     path('register/', RegisterView.as_view(), name='register'),
-    path('login/', CustomLoginView.as_view(), name='login'), # Replaced the default JWT login
+    path('login/', CustomLoginView.as_view(), name='login'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    
+
     # TOTP & 2FA
     path('totp/generate/<int:user_id>/', GenerateTOTPURIView.as_view(), name='generate_totp'),
     path('totp/verify/', VerifyTOTPView.as_view(), name='verify_totp'),
-    
-    # E2EE Crypto
-    path('keys/upload/', UploadKeysView.as_view(), name='upload_keys'),
-    
-    # Profiles
-    path('profile/me/', ProfileRetrieveUpdateView.as_view(), name='my_profile'),
-    path('profile/<str:username>/', ProfileRetrieveUpdateView.as_view(), name='user_profile'),
-    # simple check endpoint for frontend auth guard
-    path('auth-check/', AuthCheckView.as_view(), name='auth_check'),
 
+    # E2EE Crypto Keys
     path('keys/upload/', UploadKeysView.as_view(), name='upload_keys'),
     path('keys/me/', GetMyKeysView.as_view(), name='my_keys'),
     path('keys/<str:username>/', GetPublicKeyView.as_view(), name='get_public_key'),
-    path('messages/', MessageListCreateView.as_view(), name='messages'),
-    path('users/', UserListView.as_view(), name='user_list'),
-    
-    path('role/change/', ChangeUserRoleView.as_view(), name='change_role'),
 
+    # Profiles — specific paths BEFORE generic <username> catch-all
+    path('profile/me/', ProfileRetrieveUpdateView.as_view(), name='my_profile'),
+    path('profile/me/viewers/', ProfileViewersView.as_view(), name='profile_viewers'),
+    path('profile/me/picture/', ProfilePictureUploadView.as_view(), name='profile_picture'),
+    path('profile/<str:username>/public/', PublicProfileView.as_view(), name='public_profile'),
+    path('profile/<str:username>/', ProfileRetrieveUpdateView.as_view(), name='user_profile'),
+
+    # Auth check
+    path('auth-check/', AuthCheckView.as_view(), name='auth_check'),
+
+    # Messaging
+    path('messages/', MessageListCreateView.as_view(), name='messages'),
+
+    # Users list + search
+    path('users/', UserListView.as_view(), name='user_list'),
+    path('users/search/', UserSearchView.as_view(), name='user_search'),
+
+    # Roles & Audit
+    path('role/change/', ChangeUserRoleView.as_view(), name='change_role'),
     path('audit-logs/', AuditLogListView.as_view(), name='audit_logs'),
+
+    # Group Chat
     path('groups/', GroupListCreateView.as_view(), name='group-list-create'),
     path('groups/<int:group_id>/', GroupDetailView.as_view(), name='group-detail'),
     path('groups/<int:group_id>/members/', GroupMemberManageView.as_view(), name='group-add-member'),
     path('groups/<int:group_id>/members/<int:user_id>/', GroupMemberManageView.as_view(), name='group-manage-member'),
-    
-    # Phase 3: Group Messaging
     path('groups/<int:group_id>/messages/', GroupMessageListCreateView.as_view(), name='group-messages'),
-    
+
+    # Member 1: Social Feed
+    path('feed/', FeedView.as_view(), name='feed'),
+
+    # Member 1: Connections — specific before generic
+    path('connections/suggestions/', ConnectionSuggestionsView.as_view(), name='connection_suggestions'),
+    path('connections/graph/', NetworkGraphView.as_view(), name='connection_graph'),
+    path('connections/send/<str:username>/', SendConnectionRequestView.as_view(), name='send_connection'),
+    path('connections/<int:pk>/', ConnectionDetailView.as_view(), name='connection_detail'),
+    path('connections/', ConnectionListView.as_view(), name='connections'),
+
+    # Member 1: Notifications
+    path('notifications/', NotificationListView.as_view(), name='notifications'),
+    path('notifications/read-all/', MarkNotificationReadView.as_view(), name='notifications_read_all'),
+    path('notifications/<int:pk>/read/', MarkNotificationReadView.as_view(), name='notification_read'),
 ]

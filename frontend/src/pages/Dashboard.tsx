@@ -1,237 +1,294 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  getMyProfile, updateMyProfile, 
-  uploadResume, getMyResumes, downloadResumeUrl, deleteResume, getMyKeys
-} from '../services/api';
-import { unwrapSigningKey, signFileDocument } from '../utils/crypto';
-import ChatWidget from '../components/ChatWidget';
 import Navbar from '../components/Navbar';
+import ChatWidget from '../components/ChatWidget';
+import {
+  getMyProfile, getFeed, createPost,
+  getMyConnections, getConnectionSuggestions, sendConnectionRequest,
+  getMyProfileViewers,
+} from '../services/api';
 
-interface Resume {
-  id: number;
-  file: string;
-  is_encrypted: boolean;
-  uploaded_at: string;
-  digital_signature?: string;
-}
+const GRAD = (name: string) => {
+  const g = ['from-blue-500 to-cyan-500','from-purple-500 to-pink-500','from-emerald-500 to-teal-500','from-orange-500 to-red-500','from-indigo-500 to-blue-500'];
+  return g[(name || 'U').charCodeAt(0) % g.length];
+};
+
+const timeAgo = (iso: string) => {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60)    return 'just now';
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(iso).toLocaleDateString();
+};
+
+const roleBadge = (role: string) => {
+  switch (role) {
+    case 'RECRUITER': return 'bg-purple-100 text-purple-700 border-purple-200';
+    case 'ADMIN':     return 'bg-red-100 text-red-700 border-red-200';
+    default:          return 'bg-blue-100 text-blue-700 border-blue-200';
+  }
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  
-  // States
-  const [profile, setProfile] = useState<any>(null);
-  const [resumes, setResumes] = useState<Resume[]>([]);
-  const [isEditing, setIsEditing] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  
-  // --- NEW CRYPTO STATES ---
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [password, setPassword] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
-
-  const [formData, setFormData] = useState({
-    headline: '', bio: '', location: '', skills: ''
-  });
-
-  const loadAllData = async () => {
-    try {
-      // Load Profile
-      const profileData = await getMyProfile();
-      setProfile(profileData);
-      setFormData({
-        headline: profileData.headline || '',
-        bio: profileData.bio || '',
-        location: profileData.location || '',
-        skills: profileData.skills || ''
-      });
-
-      // Load Resumes
-      const resumeData = await getMyResumes();
-      setResumes(resumeData);
-    } catch (err: any) {
-      if (err.message === 'Unauthorized') navigate('/login');
-      setError(err.message || 'Failed to load dashboard data.');
-    }
-  };
+  const [profile, setProfile]           = useState<any>(null);
+  const [feed, setFeed]                 = useState<any[]>([]);
+  const [connections, setConnections]   = useState<any[]>([]);
+  const [suggestions, setSuggestions]   = useState<any[]>([]);
+  const [viewCount, setViewCount]       = useState(0);
+  const [newPost, setNewPost]           = useState('');
+  const [showComposer, setShowComposer] = useState(false);
+  const [posting, setPosting]           = useState(false);
+  const [connLoading, setConnLoading]   = useState<number | null>(null);
 
   useEffect(() => {
-    loadAllData();
+    loadAll();
   }, [navigate]);
 
-  // --- Handlers ---
-  const handleProfileUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const loadAll = async () => {
     try {
-      await updateMyProfile(formData);
-      setIsEditing(false);
-      setMessage("Profile updated successfully!");
-      loadAllData();
-    } catch (err) {
-      setError("Failed to save profile.");
-    }
-  };
-
-  // STEP 1: Select the file and prompt for password
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    setSelectedFile(e.target.files[0]);
-    setPassword('');
-    setError('');
-  };
-
-  // STEP 2: Sign and Upload
-  const handleSecureUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedFile) return;
-    if (!password) {
-      setError('Password is required to digitally sign your resume.');
-      return;
-    }
-
-    setError('');
-    setMessage('');
-    setIsUploading(true);
-
-    try {
-      // 1. Fetch encrypted keys from backend
-      const myKeys = await getMyKeys();
-      
-      // 2. Unlock the RSA-PSS signing key using the password
-      const username = localStorage.getItem('username') || '';
-      const signingKey = await unwrapSigningKey(myKeys.encrypted_private_key, password, username);
-      
-      // 3. Hash the PDF and Sign it mathematically
-      const signatureBase64 = await signFileDocument(selectedFile, signingKey);
-      
-      // 4. Upload BOTH the file and the signature
-      await uploadResume(selectedFile, signatureBase64);
-      
-      setMessage('Resume securely uploaded and digitally signed!');
-      setSelectedFile(null);
-      setPassword('');
-      loadAllData(); 
+      const [p, f, c, s, v] = await Promise.all([
+        getMyProfile(),
+        getFeed(),
+        getMyConnections(),
+        getConnectionSuggestions(),
+        getMyProfileViewers(),
+      ]);
+      if (!p) { navigate('/login'); return; }
+      setProfile(p);
+      setFeed(f);
+      setConnections(c.connections ?? []);
+      setSuggestions(s.slice(0, 3));
+      setViewCount(v.view_count ?? 0);
     } catch (err: any) {
-      setError(err.message || "Failed to sign and upload. Did you enter the correct password?");
-    } finally {
-      setIsUploading(false);
+      if (err.message === 'Unauthorized') navigate('/login');
     }
   };
 
-  if (!profile) return <div className="p-10 text-center text-xl font-bold">Loading secure dashboard...</div>;
+  const handlePost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPost.trim()) return;
+    setPosting(true);
+    try {
+      const p = await createPost(newPost.trim());
+      setFeed(prev => [p, ...prev]);
+      setNewPost('');
+      setShowComposer(false);
+    } catch (e: any) { alert(e.message); }
+    finally { setPosting(false); }
+  };
+
+  const handleConnect = async (username: string, idx: number) => {
+    setConnLoading(idx);
+    try {
+      await sendConnectionRequest(username);
+      setSuggestions(prev => prev.filter((_, i) => i !== idx));
+    } catch (e: any) { alert(e.message); }
+    finally { setConnLoading(null); }
+  };
+
+  if (!profile) return (
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center text-gray-400">
+      <div className="text-center">
+        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" />
+        <p>Loading your feed…</p>
+      </div>
+    </div>
+  );
+
+  const firstName = profile.username.split(/[._-]/)[0];
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
-    <Navbar role={profile?.role} username={profile?.username || localStorage.getItem('username') || ''} />
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
-      <div className="max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-gray-800">Welcome, {profile.username}</h1>
-        
-        {message && <p className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">{message}</p>}
-        {error && <p className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">{error}</p>}
+    <div className="min-h-screen" style={{ background: '#f1f5f9' }}>
+      <Navbar role={profile.role} username={profile.username} />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          
-          {/* PROFILE SECTION */}
-          <div className="bg-white p-6 rounded-lg shadow h-fit">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-800">Your Profile</h2>
-              <button onClick={() => setIsEditing(!isEditing)} className="text-blue-600 text-sm font-semibold hover:underline">
-                {isEditing ? 'Cancel' : 'Edit Profile'}
-              </button>
-            </div>
+      <div className="max-w-5xl mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[270px_1fr] gap-5">
 
-            {isEditing ? (
-              <form onSubmit={handleProfileUpdate} className="flex flex-col gap-3">
-                <input type="text" placeholder="Headline" value={formData.headline} onChange={e => setFormData({...formData, headline: e.target.value})} className="border p-2 rounded focus:ring-2 focus:ring-blue-400" />
-                <textarea placeholder="Bio" value={formData.bio} onChange={e => setFormData({...formData, bio: e.target.value})} className="border p-2 rounded h-24 focus:ring-2 focus:ring-blue-400" />
-                <input type="text" placeholder="Location" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="border p-2 rounded focus:ring-2 focus:ring-blue-400" />
-                <input type="text" placeholder="Skills (comma separated)" value={formData.skills} onChange={e => setFormData({...formData, skills: e.target.value})} className="border p-2 rounded focus:ring-2 focus:ring-blue-400" />
-                <button type="submit" className="bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition">Save Changes</button>
-              </form>
-            ) : (
-              <div className="flex flex-col gap-4 text-gray-700">
-                <div><p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Headline</p><p className="font-medium">{profile.headline || '—'}</p></div>
-                <div><p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Bio</p><p>{profile.bio || '—'}</p></div>
-                <div><p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Location</p><p>{profile.location || '—'}</p></div>
-                <div><p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Skills</p><p>{profile.skills || '—'}</p></div>
-              </div>
-            )}
-          </div>
+          {/* ────────────────── LEFT SIDEBAR ────────────────── */}
+          <div className="space-y-4 lg:sticky lg:top-[72px] h-fit">
 
-          {/* RESUME SECTION */}
-          <div className="bg-white p-6 rounded-lg shadow h-fit">
-            <h2 className="text-xl font-bold mb-4 text-gray-800">Secure Resumes</h2>
-            
-            {!selectedFile ? (
-              <label className="block w-full border-2 border-dashed border-blue-300 bg-blue-50 text-center py-6 rounded cursor-pointer hover:bg-blue-100 transition mb-6">
-                <span className="text-blue-600 font-bold">+ Select PDF Resume to Upload</span>
-                <input type="file" accept=".pdf" className="hidden" onChange={handleFileSelect} />
-              </label>
-            ) : (
-              <form onSubmit={handleSecureUpload} className="bg-blue-50 p-4 border border-blue-200 rounded mb-6">
-                <p className="font-bold text-blue-800 mb-1 truncate">File: {selectedFile.name}</p>
-                <p className="text-xs text-blue-600 mb-3">Enter password to digitally sign this document.</p>
-                <input
-                  type="password"
-                  placeholder="Account password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border p-2 rounded mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-                <div className="flex gap-2">
-                  <button type="submit" disabled={isUploading} className="flex-1 bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 disabled:bg-gray-400 transition">
-                    {isUploading ? 'Signing...' : 'Sign & Upload'}
+            {/* Mini profile card */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="h-16" style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 60%, #06b6d4 100%)' }} />
+              <div className="px-4 pb-4 -mt-7">
+                <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${GRAD(profile.username)} flex items-center justify-center text-white font-bold text-2xl border-3 border-white shadow-md mb-2 overflow-hidden`}>
+                  {profile.profile_picture_url
+                    ? <img src={profile.profile_picture_url} className="w-full h-full object-cover" alt="" />
+                    : profile.username[0].toUpperCase()}
+                </div>
+                <p className="font-bold text-gray-900">{profile.username}</p>
+                {profile.headline && <p className="text-xs text-gray-500 mt-0.5 leading-snug line-clamp-2">{profile.headline}</p>}
+
+                <div className="mt-3 space-y-1.5 border-t border-gray-100 pt-3">
+                  <button
+                    onClick={() => navigate('/my-profile')}
+                    className="w-full text-xs text-left flex justify-between items-center text-gray-500 hover:text-blue-600 transition py-1"
+                  >
+                    <span>&#128065; Profile views</span>
+                    <span className="font-bold text-gray-900">{viewCount}</span>
                   </button>
-                  <button type="button" onClick={() => setSelectedFile(null)} disabled={isUploading} className="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded hover:bg-gray-400">
-                    Cancel
+                  <button
+                    onClick={() => navigate('/people')}
+                    className="w-full text-xs text-left flex justify-between items-center text-gray-500 hover:text-blue-600 transition py-1"
+                  >
+                    <span>&#129309; Connections</span>
+                    <span className="font-bold text-gray-900">{connections.length}</span>
                   </button>
                 </div>
-              </form>
+
+                <button
+                  onClick={() => navigate('/my-profile')}
+                  className="mt-3 w-full py-1.5 text-xs font-semibold text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-full transition"
+                >
+                  View full profile
+                </button>
+              </div>
+            </div>
+
+            {/* People You May Know */}
+            {suggestions.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-bold text-gray-900">People you may know</h3>
+                  <button onClick={() => navigate('/people')} className="text-xs text-blue-600 hover:underline">See all</button>
+                </div>
+                <div className="space-y-4">
+                  {suggestions.map((s, i) => (
+                    <div key={s.id} className="flex items-start gap-3">
+                      <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${GRAD(s.username)} flex items-center justify-center text-white font-bold text-sm shrink-0`}>
+                        {s.username[0].toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <button onClick={() => navigate(`/profile/${s.username}`)}
+                          className="font-semibold text-gray-900 text-xs hover:text-blue-600 transition block truncate">
+                          {s.username}
+                        </button>
+                        {s.headline && <p className="text-[11px] text-gray-400 truncate">{s.headline}</p>}
+                        <p className="text-[10px] text-gray-400">{s.mutual_connections} mutual connection{s.mutual_connections !== 1 ? 's' : ''}</p>
+                        <button
+                          onClick={() => handleConnect(s.username, i)}
+                          disabled={connLoading === i}
+                          className="mt-1 text-[11px] font-semibold text-blue-600 border border-blue-200 px-3 py-0.5 rounded-full hover:bg-blue-50 transition disabled:opacity-50"
+                        >
+                          {connLoading === i ? '…' : '+ Connect'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
-            <ul className="flex flex-col gap-3">
-              {resumes.length === 0 ? (
-                <li className="text-gray-500 text-center text-sm py-4">No resumes uploaded yet.</li>
-              ) : (
-                resumes.map(r => (
-                  <li key={r.id} className="flex justify-between items-center bg-gray-50 p-3 border rounded">
-                    <div className="truncate w-1/2">
-                      <a href={downloadResumeUrl(r.id)} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-medium hover:underline truncate block">
-                        {r.file.split('/').pop()}
-                      </a>
-                      {r.digital_signature && (
-                        <span className="inline-block mt-1 text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold border border-green-300">
-                          ✓ Signed
-                        </span>
-                      )}
+            {/* Quick links */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Quick Links</h3>
+              <nav className="space-y-1">
+                {[
+                  { icon: '&#127970;', label: 'Browse Jobs', path: '/jobs' },
+                  { icon: '&#129309;', label: 'My Connections', path: '/people' },
+                  { icon: '&#127760;', label: 'Network Graph', path: '/network-graph' },
+                  { icon: '&#9881;',   label: 'Settings', path: '/settings' },
+                ].map(l => (
+                  <button key={l.path} onClick={() => navigate(l.path)}
+                    className="w-full flex items-center gap-3 px-2 py-1.5 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition">
+                    <span dangerouslySetInnerHTML={{ __html: l.icon }} />
+                    <span>{l.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </div>
+
+          {/* ────────────────── MAIN FEED ────────────────── */}
+          <div className="space-y-4 min-w-0">
+
+            {/* Post composer */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <div className="flex gap-3 items-center">
+                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${GRAD(profile.username)} flex items-center justify-center text-white font-bold text-lg shrink-0 overflow-hidden`}>
+                  {profile.profile_picture_url
+                    ? <img src={profile.profile_picture_url} className="w-full h-full object-cover" alt="" />
+                    : profile.username[0].toUpperCase()}
+                </div>
+                {!showComposer ? (
+                  <button
+                    onClick={() => setShowComposer(true)}
+                    className="flex-1 text-left px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-400 transition"
+                  >
+                    What's on your mind, {firstName}?
+                  </button>
+                ) : (
+                  <div className="flex-1">
+                    <textarea
+                      autoFocus
+                      value={newPost}
+                      onChange={e => setNewPost(e.target.value)}
+                      placeholder={`What's on your mind, ${firstName}?`}
+                      rows={3}
+                      className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl resize-none text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="flex gap-2 mt-2 justify-end">
+                      <button onClick={() => { setShowComposer(false); setNewPost(''); }}
+                        className="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handlePost as any}
+                        disabled={!newPost.trim() || posting}
+                        className="px-5 py-1.5 bg-blue-600 text-white rounded-full text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-40"
+                      >
+                        {posting ? 'Posting…' : 'Post'}
+                      </button>
                     </div>
-                    <button
-                      onClick={async () => {
-                        if (!confirm('Delete this resume permanently?')) return;
-                        try {
-                          await deleteResume(r.id);
-                          setMessage('Resume deleted');
-                          loadAllData();
-                        } catch (err: any) {
-                          setError('Delete failed');
-                        }
-                      }}
-                      className="text-red-500 hover:text-red-700 text-sm font-bold bg-red-100 hover:bg-red-200 px-3 py-1 rounded transition"
-                    >
-                      Delete
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Feed posts */}
+            {feed.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 py-20 text-center text-gray-400">
+                <div className="text-5xl mb-4">&#128240;</div>
+                <p className="font-semibold text-lg">Your feed is empty</p>
+                <p className="text-sm mt-1 mb-5">Connect with people to see their posts here</p>
+                <button onClick={() => navigate('/people')}
+                  className="px-5 py-2 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 transition">
+                  Find people to connect
+                </button>
+              </div>
+            ) : (
+              feed.map(post => (
+                <div key={post.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${GRAD(post.author_username)} flex items-center justify-center text-white font-bold shrink-0`}>
+                      {post.author_username[0].toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <button onClick={() => navigate(`/profile/${post.author_username}`)}
+                        className="font-semibold text-gray-900 hover:text-blue-600 transition text-sm">
+                        {post.author_username}
+                      </button>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${roleBadge(post.author_role)}`}>
+                          {post.author_role}
+                        </span>
+                        <span className="text-xs text-gray-400">{timeAgo(post.created_at)}</span>
+                      </div>
+                    </div>
+                    {post.is_mine && (
+                      <span className="text-xs text-gray-400 bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg shrink-0">You</span>
+                    )}
+                  </div>
+                  <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
+                </div>
+              ))
+            )}
           </div>
 
         </div>
       </div>
-      </div>
+
       <ChatWidget />
     </div>
   );

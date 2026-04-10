@@ -1,18 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   getUsersList, getPublicKey, sendEncryptedMessage, getMessages, getMyKeys,
-  getMyGroups, createGroup, fetchGroupMessages, sendGroupMessage, addGroupMember, removeGroupMember, promoteGroupMember, deleteGroup // Phase 5 API Imports
+  getMyGroups, createGroup, fetchGroupMessages, sendGroupMessage, addGroupMember, removeGroupMember, promoteGroupMember, deleteGroup
 } from '../services/api';
 import { 
-  encryptMessage, decryptMessage, unwrapPrivateKey,
-  generateGroupKey, wrapGroupKeyForMembers, unwrapGroupKey, encryptGroupMessage, decryptGroupMessage // Phase 5 Crypto Imports
+  encryptMessage, decryptMessage,
+  generateGroupKey, wrapGroupKeyForMembers, unwrapGroupKey, encryptGroupMessage, decryptGroupMessage
 } from '../utils/crypto';
+import { useCrypto } from '../contexts/CryptoContext';
 
 export default function ChatWidget() {
+  // --- SESSION KEY CACHE (shared with Dashboard via context) ---
+  const { decryptionKey: privateKey, isUnlocked, unlockKey } = useCrypto();
+
   const [isOpen, setIsOpen] = useState(false);
-  const [isUnlocked, setIsUnlocked] = useState(false);
+  // password is only a temporary local input string — never stored beyond the form submit
   const [password, setPassword] = useState('');
-  const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
+  const [isUnlocking, setIsUnlocking] = useState(false);
   
   // Tab State
   const [activeTab, setActiveTab] = useState<'DM' | 'GROUP'>('DM');
@@ -42,13 +46,18 @@ export default function ChatWidget() {
   const [newMemberId, setNewMemberId] = useState('');
   //const currentUserId = Number(localStorage.getItem('user_id')); // Assuming you store this on login
 
-  // Fetch users and groups on open
+  // Fetch users and groups on open; if already unlocked (e.g. from resume upload),
+  // immediately load the inbox so the user skips the unlock screen.
   useEffect(() => {
     if (isOpen) {
       getUsersList().then(setUsers).catch(console.error);
-      if (isUnlocked) fetchGroupsData();
+      if (isUnlocked && privateKey) {
+        fetchGroupsData();
+        fetchInbox(privateKey);
+      }
     }
-  }, [isOpen, isUnlocked]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, isUnlocked, privateKey]);
 
   // Auto-scroll
   useEffect(() => {
@@ -71,16 +80,17 @@ export default function ChatWidget() {
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsUnlocking(true);
     try {
-      const myKeys = await getMyKeys();
-      const username = localStorage.getItem('username') || '';
-      const unlockedKey = await unwrapPrivateKey(myKeys.encrypted_private_key, password, username);
-      setPrivateKey(unlockedKey);
-      setIsUnlocked(true);
-      fetchInbox(unlockedKey); 
+      // unlockKey caches both decryption + signing keys in context for the whole session
+      const { decryptionKey } = await unlockKey(password);
+      setPassword(''); // clear password from memory immediately
+      fetchInbox(decryptionKey);
       fetchGroupsData();
     } catch (err) {
       setError('Failed to unlock. Wrong password?');
+    } finally {
+      setIsUnlocking(false);
     }
   };
 
@@ -346,11 +356,28 @@ export default function ChatWidget() {
              <div className="text-center mb-6">
                <span className="text-4xl">🔐</span>
              </div>
-             <p className="text-sm mb-4 text-gray-600 text-center">Enter your password to decrypt your keys.</p>
+             <p className="text-sm mb-4 text-gray-600 text-center">
+               Enter your password once to unlock end-to-end encryption.
+             </p>
+             <p className="text-xs mb-4 text-gray-400 text-center">
+               Your key is cached for the session — you won't be asked again.
+             </p>
              {error && <p className="text-red-500 text-xs mb-2 text-center">{error}</p>}
-             <input type="password" placeholder="Password" className="border border-gray-300 p-2 mb-4 rounded w-full focus:outline-none focus:border-blue-500"
-               onChange={(e) => setPassword(e.target.value)} required />
-             <button type="submit" className="bg-green-600 text-white p-2 rounded hover:bg-green-700 font-semibold shadow-sm">Unlock Inbox</button>
+             <input
+               type="password"
+               placeholder="Password"
+               value={password}
+               className="border border-gray-300 p-2 mb-4 rounded w-full focus:outline-none focus:border-blue-500"
+               onChange={(e) => setPassword(e.target.value)}
+               required
+             />
+             <button
+               type="submit"
+               disabled={isUnlocking}
+               className="bg-green-600 text-white p-2 rounded hover:bg-green-700 font-semibold shadow-sm disabled:opacity-60"
+             >
+               {isUnlocking ? 'Unlocking…' : 'Unlock Inbox'}
+             </button>
            </form>
           ) : (
             <div className="flex flex-col flex-1 overflow-hidden">

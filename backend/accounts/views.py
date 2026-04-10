@@ -491,3 +491,514 @@ class GroupMessageListCreateView(APIView):
 
         serializer = GroupMessageSerializer(message)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# ====================================================================
+# MEMBER 1: SOCIAL NETWORK VIEWS
+# ====================================================================
+
+from .models import Connection, Post, ProfileView, Notification
+from django.db.models import Q
+
+
+class UserSearchView(APIView):
+    """
+    MEMBER 1: Search users by username or headline.
+    GET /api/auth/users/search/?q=<query>
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        q = request.query_params.get('q', '').strip()
+        if len(q) < 2:
+            return Response([])
+
+        users = User.objects.filter(
+            Q(username__icontains=q) | Q(profile__headline__icontains=q)
+        ).exclude(id=request.user.id).select_related('profile')[:20]
+
+        results = []
+        for user in users:
+            conn = Connection.objects.filter(
+                Q(sender=request.user, receiver=user) |
+                Q(sender=user, receiver=request.user)
+            ).first()
+
+            if conn:
+                if conn.status == 'ACCEPTED':
+                    conn_status = 'connected'
+                elif conn.status == 'PENDING':
+                    conn_status = 'pending_sent' if conn.sender == request.user else 'pending_received'
+                else:
+                    conn_status = 'none'
+                conn_id = conn.id
+            else:
+                conn_status = 'none'
+                conn_id = None
+
+            try:
+                headline = user.profile.headline if user.profile.is_headline_public else ''
+            except Exception:
+                headline = ''
+
+            results.append({
+                'id': user.id,
+                'username': user.username,
+                'headline': headline,
+                'role': user.role,
+                'connection_status': conn_status,
+                'connection_id': conn_id,
+            })
+
+        return Response(results)
+
+
+class PublicProfileView(APIView):
+    """
+    MEMBER 1: View any user's public profile.
+    Applies privacy filters based on connection status.
+    Logs a ProfileView (self-views not counted).
+    GET /api/auth/profile/<username>/public/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, username):
+        target_user = get_object_or_404(User, username=username)
+        profile = get_object_or_404(Profile, user=target_user)
+
+        # Log the view — never count self-views
+        if request.user != target_user:
+            ProfileView.objects.create(viewer=request.user, viewed_user=target_user)
+
+        serializer = ProfileSerializer(profile, context={'request': request})
+        data = dict(serializer.data)
+
+        # Determine connection status between viewer and profile owner
+        conn = Connection.objects.filter(
+            Q(sender=request.user, receiver=target_user) |
+            Q(sender=target_user, receiver=request.user)
+        ).first()
+
+        if conn:
+            if conn.status == 'ACCEPTED':
+                data['connection_status'] = 'connected'
+            elif conn.sender == request.user:
+                data['connection_status'] = 'pending_sent'
+            else:
+                data['connection_status'] = 'pending_received'
+            data['connection_id'] = conn.id
+        else:
+            data['connection_status'] = 'none'
+            data['connection_id'] = None
+
+        data['is_own_profile'] = (request.user == target_user)
+
+        # View count only visible to profile owner
+        if request.user == target_user:
+            data['view_count'] = ProfileView.objects.filter(viewed_user=target_user).count()
+
+        return Response(data)
+
+
+class ConnectionListView(APIView):
+    """
+    MEMBER 1: List accepted connections + pending requests.
+    GET /api/auth/connections/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _format(self, conn, me):
+        other = conn.receiver if conn.sender == me else conn.sender
+        try:
+            headline = other.profile.headline if other.profile.is_headline_public else ''
+        except Exception:
+            headline = ''
+        return {
+            'id': conn.id,
+            'username': other.username,
+            'role': other.role,
+            'headline': headline,
+            'status': conn.status,
+            'created_at': conn.created_at,
+        }
+
+    def get(self, request):
+        accepted = Connection.objects.filter(
+            Q(sender=request.user) | Q(receiver=request.user),
+            status='ACCEPTED'
+        ).select_related('sender__profile', 'receiver__profile')
+
+        pending_received = Connection.objects.filter(
+            receiver=request.user, status='PENDING'
+        ).select_related('sender__profile')
+
+        pending_sent = Connection.objects.filter(
+            sender=request.user, status='PENDING'
+        ).select_related('receiver__profile')
+
+        return Response({
+            'connections': [self._format(c, request.user) for c in accepted],
+            'pending_received': [self._format(c, request.user) for c in pending_received],
+            'pending_sent': [self._format(c, request.user) for c in pending_sent],
+        })
+
+
+class SendConnectionRequestView(APIView):
+    """
+    MEMBER 1: Send a connection request to another user.
+    POST /api/auth/connections/send/<username>/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, username):
+        target = get_object_or_404(User, username=username)
+
+        if target == request.user:
+            return Response({'error': 'Cannot connect with yourself.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        existing = Connection.objects.filter(
+            Q(sender=request.user, receiver=target) |
+            Q(sender=target, receiver=request.user)
+        ).first()
+
+        if existing:
+            return Response({'error': 'A connection already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        conn = Connection.objects.create(sender=request.user, receiver=target, status='PENDING')
+        create_audit_log('CONNECTION_REQUEST_SENT', request.user, {'to_user': target.username})
+
+        # Notify receiver
+        Notification.objects.create(
+            recipient=target,
+            sender=request.user,
+            notif_type='CONNECTION_REQUEST',
+            message=f'{request.user.username} sent you a connection request',
+            related_connection_id=conn.id,
+        )
+
+        return Response(
+            {'id': conn.id, 'message': f'Connection request sent to {target.username}.'},
+            status=status.HTTP_201_CREATED
+        )
+
+
+class ConnectionDetailView(APIView):
+    """
+    MEMBER 1: Accept/reject a pending request, or remove an accepted connection.
+    PATCH /api/auth/connections/<pk>/  — body: {"action": "ACCEPT" | "REJECT"}
+    DELETE /api/auth/connections/<pk>/ — remove connection (either side)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        conn = get_object_or_404(Connection, id=pk, receiver=request.user, status='PENDING')
+        action = request.data.get('action', '').upper()
+
+        if action == 'ACCEPT':
+            conn.status = 'ACCEPTED'
+            conn.save()
+            create_audit_log('CONNECTION_ACCEPTED', request.user, {'from_user': conn.sender.username})
+            # Notify original sender
+            Notification.objects.create(
+                recipient=conn.sender,
+                sender=request.user,
+                notif_type='CONNECTION_ACCEPTED',
+                message=f'{request.user.username} accepted your connection request',
+            )
+            # Remove the original CONNECTION_REQUEST notification (no longer actionable)
+            Notification.objects.filter(
+                recipient=request.user,
+                related_connection_id=conn.id,
+                notif_type='CONNECTION_REQUEST',
+            ).delete()
+            return Response({'message': f'Now connected with {conn.sender.username}!'})
+        elif action == 'REJECT':
+            conn.delete()
+            return Response({'message': 'Request declined.'})
+        else:
+            return Response({'error': 'Action must be ACCEPT or REJECT.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        conn = get_object_or_404(
+            Connection,
+            Q(sender=request.user, id=pk) | Q(receiver=request.user, id=pk)
+        )
+        conn.delete()
+        return Response({'message': 'Connection removed.'}, status=status.HTTP_204_NO_CONTENT)
+
+
+class FeedView(APIView):
+    """
+    MEMBER 1: Social feed — posts from connections + own posts.
+    GET  /api/auth/feed/ — paginated feed
+    POST /api/auth/feed/ — create a new post
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _connected_ids(self, user):
+        """Return a set of user IDs the current user is connected to (+ self)."""
+        sent_ids = Connection.objects.filter(
+            sender=user, status='ACCEPTED'
+        ).values_list('receiver_id', flat=True)
+        received_ids = Connection.objects.filter(
+            receiver=user, status='ACCEPTED'
+        ).values_list('sender_id', flat=True)
+        ids = set(sent_ids) | set(received_ids)
+        ids.add(user.id)
+        return ids
+
+    def get(self, request):
+        ids = self._connected_ids(request.user)
+        posts = Post.objects.filter(author_id__in=ids).order_by('-created_at')[:50]
+        return Response([{
+            'id': p.id,
+            'author_username': p.author.username,
+            'author_role': p.author.role,
+            'content': p.content,
+            'created_at': p.created_at,
+            'is_mine': p.author_id == request.user.id,
+        } for p in posts])
+
+    def post(self, request):
+        content = request.data.get('content', '').strip()
+        if not content:
+            return Response({'error': 'Content is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        post = Post.objects.create(author=request.user, content=content)
+
+        # Notify all connections about the new post
+        connection_ids = self._connected_ids(request.user) - {request.user.id}
+        notifs = [
+            Notification(
+                recipient_id=uid,
+                sender=request.user,
+                notif_type='NEW_POST',
+                message=f'{request.user.username} shared a new post',
+            )
+            for uid in connection_ids
+        ]
+        if notifs:
+            Notification.objects.bulk_create(notifs)
+
+        return Response({
+            'id': post.id,
+            'author_username': post.author.username,
+            'author_role': post.author.role,
+            'content': post.content,
+            'created_at': post.created_at,
+            'is_mine': True,
+        }, status=status.HTTP_201_CREATED)
+
+
+class ProfileViewersView(APIView):
+    """
+    MEMBER 1: Who recently viewed my profile (last 30 days, max 10 unique).
+    GET /api/auth/profile/me/viewers/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            if not request.user.profile.is_view_history_public:
+                return Response({'viewers': [], 'view_count': 0, 'hidden': True})
+        except Exception:
+            pass
+
+        from django.utils import timezone
+        from datetime import timedelta
+
+        recent = ProfileView.objects.filter(
+            viewed_user=request.user,
+            timestamp__gte=timezone.now() - timedelta(days=30)
+        ).order_by('-timestamp').select_related('viewer')
+
+        seen, viewers = set(), []
+        for v in recent:
+            if v.viewer_id not in seen:
+                seen.add(v.viewer_id)
+                viewers.append({
+                    'username': v.viewer.username,
+                    'role': v.viewer.role,
+                    'viewed_at': v.timestamp,
+                })
+            if len(viewers) >= 10:
+                break
+
+        total = ProfileView.objects.filter(viewed_user=request.user).count()
+        return Response({'viewers': viewers, 'view_count': total, 'hidden': False})
+
+
+# ====================================================================
+# MEMBER 1: ADDITIONAL SOCIAL VIEWS
+# ====================================================================
+
+from .serializers import NotificationSerializer
+
+
+class NotificationListView(APIView):
+    """
+    MEMBER 1: Get my notifications + unread count.
+    GET /api/auth/notifications/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        notifs = Notification.objects.filter(
+            recipient=request.user
+        ).select_related('sender').order_by('-created_at')[:30]
+
+        unread_count = Notification.objects.filter(
+            recipient=request.user, is_read=False
+        ).count()
+
+        return Response({
+            'notifications': NotificationSerializer(notifs, many=True).data,
+            'unread_count': unread_count,
+        })
+
+
+class MarkNotificationReadView(APIView):
+    """
+    MEMBER 1: Mark one or all notifications as read.
+    POST /api/auth/notifications/<pk>/read/    → mark one
+    POST /api/auth/notifications/read-all/     → mark all
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk=None):
+        if pk:
+            notif = get_object_or_404(Notification, id=pk, recipient=request.user)
+            notif.is_read = True
+            notif.save()
+        else:
+            Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response({'message': 'Marked as read.'})
+
+
+class ConnectionSuggestionsView(APIView):
+    """
+    MEMBER 1: BFS-based 2nd-degree connection suggestions.
+    GET /api/auth/connections/suggestions/
+    Returns up to 10 users sorted by mutual connection count.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # 1st degree IDs
+        sent_ids = set(Connection.objects.filter(
+            sender=request.user, status='ACCEPTED').values_list('receiver_id', flat=True))
+        received_ids = set(Connection.objects.filter(
+            receiver=request.user, status='ACCEPTED').values_list('sender_id', flat=True))
+        direct_ids = sent_ids | received_ids
+
+        # Count mutual connections for each candidate 2nd-degree node
+        mutual_count: dict[int, int] = {}
+        for cid in direct_ids:
+            c_out = set(Connection.objects.filter(
+                sender_id=cid, status='ACCEPTED').values_list('receiver_id', flat=True))
+            c_in = set(Connection.objects.filter(
+                receiver_id=cid, status='ACCEPTED').values_list('sender_id', flat=True))
+            for uid in (c_out | c_in):
+                if uid != request.user.id and uid not in direct_ids:
+                    mutual_count[uid] = mutual_count.get(uid, 0) + 1
+
+        sorted_ids = sorted(mutual_count.items(), key=lambda x: -x[1])[:10]
+
+        results = []
+        for uid, mutuals in sorted_ids:
+            try:
+                u = User.objects.select_related('profile').get(id=uid)
+                try:
+                    headline = u.profile.headline if u.profile.is_headline_public else ''
+                except Exception:
+                    headline = ''
+                results.append({
+                    'id': u.id,
+                    'username': u.username,
+                    'headline': headline,
+                    'role': u.role,
+                    'mutual_connections': mutuals,
+                    'connection_status': 'none',
+                    'connection_id': None,
+                })
+            except User.DoesNotExist:
+                pass
+
+        return Response(results)
+
+
+class ProfilePictureUploadView(APIView):
+    """
+    MEMBER 1: Upload / replace the current user's profile picture.
+    POST /api/auth/profile/me/picture/  (multipart/form-data, field: picture)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if 'picture' not in request.FILES:
+            return Response({'error': 'No picture provided. Send field name: picture'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        file = request.FILES['picture']
+        # Basic mime check
+        if not file.content_type.startswith('image/'):
+            return Response({'error': 'File must be an image.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        profile = request.user.profile
+        profile.profile_picture = file
+        profile.save()
+
+        picture_url = None
+        if profile.profile_picture:
+            picture_url = request.build_absolute_uri(profile.profile_picture.url)
+
+        return Response({'message': 'Profile picture updated.', 'picture_url': picture_url})
+
+
+class NetworkGraphView(APIView):
+    """
+    MEMBER 1: Return graph data for the connection network visualisation.
+    GET /api/auth/connections/graph/
+    Returns nodes (degree 0/1/2) and unique edges.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        me = request.user
+
+        # 1st degree
+        first_degree: dict[int, dict] = {}
+        for conn in Connection.objects.filter(
+            Q(sender=me) | Q(receiver=me), status='ACCEPTED'
+        ).select_related('sender', 'receiver'):
+            other = conn.receiver if conn.sender == me else conn.sender
+            first_degree[other.id] = {'id': other.id, 'username': other.username, 'role': other.role, 'degree': 1}
+
+        edges: list[tuple[int, int]] = [(me.id, uid) for uid in first_degree]
+
+        # 2nd degree
+        second_degree: dict[int, dict] = {}
+        for uid in first_degree:
+            for conn in Connection.objects.filter(
+                Q(sender_id=uid) | Q(receiver_id=uid), status='ACCEPTED'
+            ).select_related('sender', 'receiver'):
+                other = conn.receiver if conn.sender_id == uid else conn.sender
+                oid = other.id
+                if oid != me.id and oid not in first_degree:
+                    second_degree[oid] = {'id': oid, 'username': other.username, 'role': other.role, 'degree': 2}
+                edges.append((uid, oid))
+
+        nodes = [
+            {'id': me.id, 'username': me.username, 'role': me.role, 'degree': 0}
+        ] + list(first_degree.values()) + list(second_degree.values())
+
+        # Deduplicate edges
+        seen_edges: set[tuple[int, int]] = set()
+        unique_edges = []
+        for a, b in edges:
+            key = (min(a, b), max(a, b))
+            if key not in seen_edges:
+                seen_edges.add(key)
+                unique_edges.append({'from': a, 'to': b})
+
+        return Response({'nodes': nodes, 'edges': unique_edges})
