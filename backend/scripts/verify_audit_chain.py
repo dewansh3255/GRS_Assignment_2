@@ -33,7 +33,12 @@ def verify_blockchain():
         )
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        cur.execute("SELECT * FROM accounts_auditlog ORDER BY id;")
+        cur.execute("""
+            SELECT l.*, u.username as user_name 
+            FROM accounts_auditlog l
+            LEFT JOIN accounts_user u ON l.user_id = u.id
+            ORDER BY l.id;
+        """)
         logs = cur.fetchall()
         
         if not logs:
@@ -62,10 +67,23 @@ def verify_blockchain():
                 is_valid = False
             
             # Step 2: Recalculate block hash and verify against stored_current_hash
-            user_id_str = str(log['user_id']) if log['user_id'] else "None"
-            # Matching the format generated in Django `audit.py`
-            raw_data = f"{stored_prev_hash}|{action}|{user_id_str}|{log['details']}|{timestamp}"
-            recalculated_hash = calculate_sha256(raw_data)
+            user_str = log['user_name'] if log['user_name'] is not None else "None"
+            
+            import json
+            try:
+                details_dict = json.loads(log['details']) if log['details'] else {}
+            except:
+                details_dict = {}
+                
+            payload = json.dumps({
+                "action": action,
+                "user": user_str,
+                "timestamp": timestamp,
+                "details": details_dict,
+                "prev_hash": stored_prev_hash,
+            }, sort_keys=True)
+            
+            recalculated_hash = calculate_sha256(payload)
             
             if recalculated_hash != stored_current_hash:
                 print(f"{RED}[✗] BLOCK TEMPERED AT ID {row_id}{RESET}")
