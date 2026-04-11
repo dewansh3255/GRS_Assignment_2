@@ -49,6 +49,8 @@ from .views import (
     CreateReportView,
     AdminReportListView,
     AdminReportResolveView,
+    SendEmailOTPView,
+    VerifyEmailOTPView
 )
 
 urlpatterns = [
@@ -128,4 +130,7 @@ urlpatterns = [
     path('reports/', CreateReportView.as_view(), name='create_report'),
     path('admin/reports/', AdminReportListView.as_view(), name='admin_reports'),
     path('admin/reports/<int:report_id>/', AdminReportResolveView.as_view(), name='admin_report_resolve'),
+
+    path('email/send-otp/', SendEmailOTPView.as_view(), name='send-email-otp'),
+    path('email/verify-otp/', VerifyEmailOTPView.as_view(), name='verify-email-otp'),
 ]

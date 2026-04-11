@@ -51,6 +51,9 @@ services:
       - ALLOWED_HOSTS=*
       - SECRET_KEY=dev_secret_key_change_in_prod
       - DEBUG=True
+      - EMAIL_HOST_USER=kdewansh16@gmail.com
+      - EMAIL_HOST_PASSWORD=ocsapshsudhgbbxi
+      
 
   # 4. Frontend (React + Vite)
   frontend:
@@ -78,3 +81,5 @@ services:
 
 volumes:
   postgres_data:
+
+

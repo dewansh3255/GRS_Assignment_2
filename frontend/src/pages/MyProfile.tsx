@@ -247,7 +247,17 @@ export default function MyProfile() {
               </div>
 
               <div className="pb-1">
-                <h1 className="text-2xl font-bold text-gray-900">{profile.username}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold text-gray-900">{profile.username}</h1>
+                  
+                  {/* Verified Badge */}
+                  {profile.is_email_verified && (
+                    <svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 20 20" title="Verified Email">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </div>
+                
                 {profile.headline && <p className="text-gray-500 text-sm mt-0.5">{profile.headline}</p>}
                 <span className={`inline-flex items-center px-2 py-0.5 mt-1 rounded-full text-xs font-semibold border ${roleBg}`}>
                   {profile.role}

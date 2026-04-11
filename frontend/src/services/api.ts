@@ -899,3 +899,35 @@ export const resolveAdminReport = async (reportId: number) => {
   if (!res.ok) throw new Error("Failed to resolve report");
   return res.json();
 };
+
+// --- EMAIL VERIFICATION ENDPOINTS ---
+
+// --- EMAIL VERIFICATION ENDPOINTS ---
+
+export const sendEmailOtp = async (newEmail: string) => {
+  const res = await secureFetch(`${API_BASE_URL}/api/auth/email/send-otp/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ new_email: newEmail })
+  });
+  
+  if (!res.ok) {
+    const errorData = await res.json();
+    throw new Error(errorData.error || "Failed to send OTP");
+  }
+  return res.json();
+};
+
+export const verifyEmailOtp = async (otp: string) => {
+  const res = await secureFetch(`${API_BASE_URL}/api/auth/email/verify-otp/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otp })
+  });
+  
+  if (!res.ok) {
+    const errorData = await res.json();
+    throw new Error(errorData.error || "Failed to verify OTP");
+  }
+  return res.json();
+};

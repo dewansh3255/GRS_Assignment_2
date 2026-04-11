@@ -8,6 +8,7 @@ from .models import UserKeys, Profile, Message
 from .serializers import UserRegistrationSerializer, UserKeysSerializer, ProfileSerializer, MessageSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
+import random
 import pyotp
 import secrets
 import hashlib
@@ -17,6 +18,14 @@ from .audit import create_audit_log
 from .models import AuditLog, ChatGroup, GroupMember, GroupMessage, BackupCode
 from django.db import transaction
 from .serializers import ChatGroupSerializer, GroupMessageSerializer, GroupMemberSerializer
+from django.core.cache import cache
+from django.core.mail import send_mail
+from django.conf import settings
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from .audit import create_audit_log
 
 User = get_user_model()
 
@@ -1380,4 +1389,76 @@ class AdminReportResolveView(APIView):
         report.save()
         create_audit_log('ADMIN_RESOLVED_REPORT', request.user, {'report_id': report.id})
         return Response({'message': 'Resolved'})
+    
+class SendEmailOTPView(APIView):
+    """Generates an OTP, stores it in Redis, and sends it via Django SMTP."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        new_email = request.data.get('new_email')
+
+        if not new_email:
+            return Response({"error": "New email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Check if email is already verified and locked
+        if getattr(user, 'is_email_verified', False):
+            return Response({"error": "Your email is already verified and cannot be changed."}, status=status.HTTP_403_FORBIDDEN)
+
+        # 2. Generate a 6-digit OTP and store it in Redis for 10 minutes (600 seconds)
+        otp = str(random.randint(100000, 999999))
+        cache_key = f"email_otp_{user.id}"
+        cache.set(cache_key, {"otp": otp, "email": new_email}, timeout=600)
+
+        # 3. Send the OTP via Django's built-in SMTP engine
+        subject = "SecureJobs - Verify Your Email"
+        message = f"Hello,\n\nYour 6-digit verification code is: {otp}\n\nThis code will expire in 10 minutes.\n\nSecureJobs Team"
+        
+        try:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.EMAIL_HOST_USER, # Uses the email configured in settings.py
+                recipient_list=[new_email],
+                fail_silently=False,
+            )
+            create_audit_log('OTP_SENT', user, {'target_email': new_email})
+            return Response({"message": "OTP sent successfully to the new email address."}, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            # Print to Docker logs AND send it to the frontend so we can see it
+            print(f"SMTP ERROR: {str(e)}")
+            return Response(
+                {"error": f"SMTP Error: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+class VerifyEmailOTPView(APIView):
+    """Verifies the OTP and permanently locks the email address."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        submitted_otp = request.data.get('otp', '').strip()
+
+        if getattr(user, 'is_email_verified', False):
+            return Response({"error": "Email is already verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        cache_key = f"email_otp_{user.id}"
+        cached_data = cache.get(cache_key)
+
+        # 1. Check if OTP exists and matches
+        if not cached_data or cached_data['otp'] != submitted_otp:
+            create_audit_log('EMAIL_VERIFY_FAILED', user, {'reason': 'invalid_or_expired_otp'})
+            return Response({"error": "Invalid or expired OTP."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Update the user record
+        user.email = cached_data['email']
+        user.is_email_verified = True
+        user.save()
+
+        # 3. Clean up cache and log the success
+        cache.delete(cache_key)
+        create_audit_log('EMAIL_VERIFIED', user, {'new_email': user.email})
+
+        return Response({"message": "Email successfully verified and locked!"}, status=status.HTTP_200_OK)
 

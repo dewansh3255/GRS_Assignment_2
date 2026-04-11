@@ -134,5 +134,18 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # --- CUSTOM USER MODEL ---
 AUTH_USER_MODEL = 'accounts.User'
 
+# --- EMAIL SETTINGS (SMTP) ---
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+# Change from 587 to 465
+EMAIL_PORT = 465 
+
+# Change from USE_TLS to USE_SSL
+EMAIL_USE_TLS = False 
+EMAIL_USE_SSL = True
+# Read the credentials safely from the environment
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER') 
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
+
 # --- CORS SETTINGS (Allow React to talk to Django) ---
 CORS_ALLOW_ALL_ORIGINS = True # For dev only. In prod, restrict to domain.

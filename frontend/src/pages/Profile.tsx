@@ -148,6 +148,7 @@ export default function ProfilePage() {
     : [];
 
   // ── Render: Full Profile ──────────────────────────────────────────────
+  console.log("PUBLIC PROFILE DATA:", profile);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -175,9 +176,30 @@ export default function ProfilePage() {
             </div>
 
             {/* Name row */}
+            
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">{profile.username}</h1>
+                {/* Username & Verified Badge Container */}
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold text-gray-900">{profile.username}</h1>
+                  
+                  {/* Solid Blue Dot with Checkmark Icon */}
+                  {profile.is_email_verified && (
+                    <svg 
+                      className="w-6 h-6 text-blue-500" 
+                      fill="currentColor" 
+                      viewBox="0 0 20 20" 
+                      title="Verified Account"
+                    >
+                      <path 
+                        fillRule="evenodd" 
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" 
+                        clipRule="evenodd" 
+                      />
+                    </svg>
+                  )}
+                </div>
+                
                 {profile.headline && <p className="text-gray-600 mt-1">{profile.headline}</p>}
                 {profile.location && (
                   <p className="text-gray-400 text-sm mt-0.5 flex items-center gap-1">

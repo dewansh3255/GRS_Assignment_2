@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import {
   getMyProfile, changeUserRole, changePassword, deleteAccount,
-  generateBackupCodes, getBackupCodes
+  generateBackupCodes, getBackupCodes,verifyEmailOtp, sendEmailOtp
 } from '../services/api';
 import VirtualKeyboard from '../components/VirtualKeyboard';
 
@@ -130,6 +130,12 @@ export default function Settings() {
   const [delTotp, setDelTotp] = useState('');
   const [delErr, setDelErr] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  const [emailInput, setEmailInput] = useState('');
+  const [otpInput, setOtpInput] = useState('');
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [emailMessage, setEmailMessage] = useState('');
+  const [emailError, setEmailError] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -261,6 +267,75 @@ export default function Settings() {
             </div>
           </div>
         </Card>
+        <Card>
+          <SectionTitle>✉️ Email Address</SectionTitle>
+          
+          {profile?.is_email_verified ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#dcfce7', border: '1px solid #86efac', padding: '16px', borderRadius: '8px' }}>
+              <span style={{ color: '#16a34a', fontSize: '24px', fontWeight: 'bold' }}>✓</span>
+              <div>
+                <p style={{ margin: 0, fontWeight: 600, color: '#166534', fontSize: '14px' }}>Your email is verified</p>
+                <p style={{ margin: 0, color: '#15803d', fontSize: '13px' }}>{profile.email}</p>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: 13, color: '#475569', marginTop: 0, marginBottom: 16 }}>
+                Verify your email to get a verified badge on your profile. <strong>Once verified, it cannot be changed.</strong>
+              </p>
+              
+              {emailMessage && <Success msg={emailMessage} />}
+              {emailError && <Err msg={emailError} />}
+
+              {!isOtpSent ? (
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <input 
+                    type="email" 
+                    placeholder="Enter new email address" 
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    style={{...inputStyle, flex: 1}}
+                  />
+                  <Btn onClick={async () => {
+                    setEmailError('');
+                    try {
+                      await sendEmailOtp(emailInput);
+                      setIsOtpSent(true);
+                      setEmailMessage('OTP sent! It expires in 10 minutes.');
+                    } catch (err: any) {
+                      setEmailError(err.message || 'Failed to send OTP');
+                    }
+                  }}>
+                    Send OTP
+                  </Btn>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Enter 6-digit OTP" 
+                    maxLength={6}
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value)}
+                    style={{...inputStyle, flex: 1, letterSpacing: '0.2em', textAlign: 'center', fontWeight: 'bold'}}
+                  />
+                  <Btn onClick={async () => {
+                    setEmailError('');
+                    try {
+                      await verifyEmailOtp(otpInput);
+                      setEmailMessage('Email verified successfully!');
+                      setProfile({ ...profile, is_email_verified: true, email: emailInput });
+                    } catch (err: any) {
+                      setEmailError(err.message || 'Invalid OTP');
+                    }
+                  }}>
+                    Verify
+                  </Btn>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
 
         {/* ── Role Change ──────────────────────────────────────────────────── */}
         <Card>
@@ -336,6 +411,8 @@ export default function Settings() {
             <Btn disabled={pwChanging}>{pwChanging ? 'Changing…' : 'Change Password'}</Btn>
           </form>
         </Card>
+
+
 
         {/* ── Backup Codes (Member 3) ───────────────────────────────────────── */}
         <Card>
