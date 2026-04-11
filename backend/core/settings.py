@@ -10,7 +10,7 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost').split(',')
 
-CSRF_TRUSTED_ORIGINS = ['https://localhost', 'http://localhost']
+CSRF_TRUSTED_ORIGINS = ['https://localhost', 'http://localhost', 'https://192.168.2.239', 'http://192.168.2.239']
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
 
