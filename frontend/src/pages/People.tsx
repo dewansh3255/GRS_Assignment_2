@@ -8,9 +8,8 @@ import {
   sendConnectionRequest,
   respondToConnection,
   removeConnection,
-  getFeed,
-  createPost,
   getMyProfileViewers,
+  getConnectionSuggestions,
 } from '../services/api';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -143,8 +142,9 @@ export default function People() {
   const [searchParams] = useSearchParams();
 
   const [profile, setProfile] = useState<any>(null);
-  const [query, setQuery] = useState(searchParams.get('q') || '');
+  const query = searchParams.get('q') || '';
   const [searchResults, setSearchResults] = useState<UserCard[]>([]);
+  const [suggestions, setSuggestions] = useState<UserCard[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
   const [connections, setConnections] = useState<{
@@ -153,47 +153,22 @@ export default function People() {
     pending_sent: ConnEntry[];
   }>({ connections: [], pending_received: [], pending_sent: [] });
 
-  const [feed, setFeed] = useState<FeedPost[]>([]);
-  const [newPost, setNewPost] = useState('');
-  const [posting, setPosting] = useState(false);
-
   const [viewers, setViewers] = useState<{ viewers: any[]; view_count: number; hidden: boolean }>({
     viewers: [], view_count: 0, hidden: false,
   });
 
-  const [activeTab, setActiveTab] = useState<'network' | 'requests' | 'feed'>('network');
+  const [activeTab, setActiveTab] = useState<'network' | 'requests'>('network');
   const [actionLoading, setActionLoading] = useState<number | string | null>(null);
 
   // ── Load on mount ───────────────────────────────────────────────────
-
-  useEffect(() => {
-    getMyProfile()
-      .then(setProfile)
-      .catch(err => { if (err.message === 'Unauthorized') navigate('/login'); });
-    loadConnections();
-    loadFeed();
-    loadViewers();
-  }, [navigate]);
-
-  // Trigger search if a ?q= param is present on load
-  useEffect(() => {
-    if (query.length >= 2) doSearch(query);
-  }, []);
-
-  // Debounced live search
-  useEffect(() => {
-    if (query.length < 2) { setSearchResults([]); return; }
-    const t = setTimeout(() => doSearch(query), 350);
-    return () => clearTimeout(t);
-  }, [query]);
 
   // ── Data loaders ────────────────────────────────────────────────────
 
   const loadConnections = () =>
     getMyConnections().then(setConnections).catch(console.error);
 
-  const loadFeed = () =>
-    getFeed().then(setFeed).catch(console.error);
+  const loadSuggestions = () =>
+    getConnectionSuggestions().then(setSuggestions).catch(console.error);
 
   const loadViewers = () =>
     getMyProfileViewers().then(setViewers).catch(console.error);
@@ -205,6 +180,24 @@ export default function People() {
     finally { setSearchLoading(false); }
   };
 
+  useEffect(() => {
+    getMyProfile()
+      .then(setProfile)
+      .catch(err => { if (err.message === 'Unauthorized') navigate('/login'); });
+    loadConnections();
+    loadSuggestions();
+    loadViewers();
+  }, [navigate]);
+
+  useEffect(() => {
+    if (query.length >= 2) {
+      const t = setTimeout(() => doSearch(query), 350);
+      return () => clearTimeout(t);
+    } else {
+      setSearchResults([]);
+    }
+  }, [query]);
+
   // ── Actions ─────────────────────────────────────────────────────────
 
   const handleConnect = async (username: string, userId: number) => {
@@ -212,6 +205,9 @@ export default function People() {
     try {
       const r = await sendConnectionRequest(username);
       setSearchResults(prev => prev.map(u =>
+        u.username === username ? { ...u, connection_status: 'pending_sent', connection_id: r.id } : u
+      ));
+      setSuggestions(prev => prev.map(u =>
         u.username === username ? { ...u, connection_status: 'pending_sent', connection_id: r.id } : u
       ));
       loadConnections();
@@ -223,9 +219,9 @@ export default function People() {
     setActionLoading(connId);
     try {
       await respondToConnection(connId, action);
-      await Promise.all([loadConnections(), loadFeed()]);
-      // Also refresh search results connection status
+      await loadConnections();
       if (query.length >= 2) doSearch(query);
+      else loadSuggestions();
     } catch (e: any) { alert(e.message); }
     finally { setActionLoading(null); }
   };
@@ -237,20 +233,9 @@ export default function People() {
       await removeConnection(connId);
       loadConnections();
       if (query.length >= 2) doSearch(query);
+      else loadSuggestions();
     } catch (e: any) { alert(e.message); }
     finally { setActionLoading(null); }
-  };
-
-  const handlePost = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPost.trim()) return;
-    setPosting(true);
-    try {
-      const p = await createPost(newPost.trim());
-      setFeed(prev => [p, ...prev]);
-      setNewPost('');
-    } catch (e: any) { alert(e.message); }
-    finally { setPosting(false); }
   };
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -270,29 +255,8 @@ export default function People() {
           <p className="text-gray-500 mt-1">Discover professionals, grow your network</p>
         </div>
 
-        {/* ── Search Bar ─────────────────────────────────────────────── */}
-        <div className="relative mb-8">
-          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <input
-            id="people-search"
-            type="text"
-            autoFocus
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search by name or headline…"
-            className="w-full pl-12 pr-10 py-4 text-base bg-white border border-gray-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400 transition"
-          />
-          {query && (
-            <button onClick={() => setQuery('')}
-              className="absolute inset-y-0 right-4 flex items-center text-gray-400 hover:text-gray-600 transition">
-              ✕
-            </button>
-          )}
-        </div>
+        {/* ── Center search bar removed for duplication ── */}
+
 
         {/* ── SEARCH STATE ───────────────────────────────────────────── */}
         {isSearching ? (
@@ -313,7 +277,7 @@ export default function People() {
                   <UserCardUI
                     key={user.id}
                     user={user}
-                    loading={actionLoading === user.id || actionLoading === user.connection_id}
+                    loading={actionLoading !== null && (actionLoading === user.id || actionLoading === user.connection_id)}
                     onView={() => navigate(`/profile/${user.username}`)}
                     onConnect={() => handleConnect(user.username, user.id)}
                     onRespond={handleRespond}
@@ -349,30 +313,51 @@ export default function People() {
             )}
 
             {/* ── Tabs ────────────────────────────────────────────────── */}
-            <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 w-fit">
-              {([
-                { key: 'network',  label: `My Network (${connections.connections.length})` },
-                { key: 'requests', label: 'Requests',  badge: pendingCount },
-                { key: 'feed',     label: 'Feed' },
-              ] as { key: string; label: string; badge?: number }[]).map(tab => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key as any)}
-                  className={`relative px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activeTab === tab.key
-                      ? 'bg-white shadow-sm text-gray-900'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {tab.label}
-                  {tab.badge && tab.badge > 0 ? (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold">
-                      {tab.badge}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
+            <div className="flex justify-between items-center bg-transparent mb-6">
+              <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+                {([
+                  { key: 'network',  label: `My Network (${connections.connections.length})` },
+                  { key: 'requests', label: 'Requests',  badge: pendingCount },
+                ] as { key: string; label: string; badge?: number }[]).map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key as any)}
+                    className={`relative px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+                      activeTab === tab.key
+                        ? 'bg-white shadow-sm text-gray-900'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.badge && tab.badge > 0 ? (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold">
+                        {tab.badge}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {/* ── Suggestions ─────────────────────────────────────────── */}
+            {suggestions.length > 0 && activeTab === 'network' && (
+              <div className="mb-8">
+                <h2 className="text-lg font-bold text-gray-900 mb-4">People you may know</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {suggestions.map(user => (
+                    <UserCardUI
+                      key={user.id}
+                      user={user}
+                      loading={actionLoading !== null && (actionLoading === user.id || actionLoading === user.connection_id)}
+                      onView={() => navigate(`/profile/${user.username}`)}
+                      onConnect={() => handleConnect(user.username, user.id)}
+                      onRespond={handleRespond}
+                      onRemove={() => handleRemove(user.connection_id!)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── Tab: My Network ─────────────────────────────────────── */}
             {activeTab === 'network' && (
@@ -483,68 +468,7 @@ export default function People() {
                 )}
               </div>
             )}
-
-            {/* ── Tab: Feed ───────────────────────────────────────────── */}
-            {activeTab === 'feed' && (
-              <div className="max-w-2xl space-y-4">
-                {/* Composer */}
-                <form onSubmit={handlePost} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                  <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${profile ? avatarGradient(profile.username) : 'from-gray-400 to-gray-500'} flex items-center justify-center text-white font-bold shrink-0`}>
-                      {profile?.username?.[0]?.toUpperCase() || '?'}
-                    </div>
-                    <textarea
-                      value={newPost}
-                      onChange={e => setNewPost(e.target.value)}
-                      placeholder="Share something with your network…"
-                      rows={3}
-                      className="flex-1 p-3 bg-gray-50 rounded-xl resize-none border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-gray-800 placeholder-gray-400"
-                    />
-                  </div>
-                  <div className="flex justify-end mt-3">
-                    <button type="submit" disabled={!newPost.trim() || posting}
-                      className="px-5 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
-                      {posting ? 'Posting…' : 'Post'}
-                    </button>
-                  </div>
-                </form>
-
-                {/* Posts */}
-                {feed.length === 0 ? (
-                  <div className="text-center py-16 text-gray-400">
-                    <div className="text-5xl mb-4">📝</div>
-                    <p className="font-medium">No posts yet</p>
-                    <p className="text-sm mt-1">Connect with people and their posts will appear here</p>
-                  </div>
-                ) : (
-                  feed.map(post => (
-                    <div key={post.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${avatarGradient(post.author_username)} flex items-center justify-center text-white font-bold shrink-0`}>
-                          {post.author_username[0].toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <button onClick={() => navigate(`/profile/${post.author_username}`)}
-                            className="font-semibold text-gray-900 hover:text-blue-600 transition text-sm">
-                            {post.author_username}
-                          </button>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${roleBadge(post.author_role)}`}>
-                              {post.author_role}
-                            </span>
-                            <span className="text-xs text-gray-400">{timeAgo(post.created_at)}</span>
-                          </div>
-                        </div>
-                        {post.is_mine && (
-                          <span className="text-xs text-gray-400 bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg shrink-0">You</span>
-                        )}
-                      </div>
-                      <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
+            {/* ── Feed Tab Removed for Dashboard Only ── */}
           </>
         )}
       </div>

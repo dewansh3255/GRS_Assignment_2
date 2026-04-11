@@ -40,6 +40,15 @@ export default function Navbar({ role, username }: NavbarProps) {
 
   // ── Search ─────────────────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState('');
+  
+  useEffect(() => {
+    const q = new URLSearchParams(location.search).get('q');
+    if (q !== null) {
+      setSearchInput(q);
+    } else if (location.pathname !== '/people') {
+      setSearchInput('');
+    }
+  }, [location.search, location.pathname]);
 
   // ── Avatar dropdown ────────────────────────────────────────────────────
   const [showDropdown, setShowDropdown] = useState(false);
@@ -93,7 +102,6 @@ export default function Navbar({ role, username }: NavbarProps) {
     e.preventDefault();
     if (searchInput.trim()) {
       navigate(`/people?q=${encodeURIComponent(searchInput.trim())}`);
-      setSearchInput('');
     }
   };
 
@@ -136,7 +144,6 @@ export default function Navbar({ role, username }: NavbarProps) {
     { label: 'Post Job',     path: '/recruiter',    roles: ['RECRUITER'] },
     { label: 'Admin',        path: '/admin-panel',  roles: ['ADMIN'] },
     { label: 'My Network',   path: '/network-graph',roles: ['CANDIDATE', 'RECRUITER', 'ADMIN'] },
-    { label: '🛡️ Attacks',   path: '/attack-demo',  roles: ['CANDIDATE', 'RECRUITER', 'ADMIN'] },
   ];
   const visible = links.filter(l => !role || l.roles.includes(role));
 
@@ -378,7 +385,6 @@ export default function Navbar({ role, username }: NavbarProps) {
                     { icon: '👤', label: 'My Profile',    action: () => navigate('/my-profile') },
                     { icon: '⚙️', label: 'Settings',      action: () => navigate('/settings') },
                     { icon: '🌐', label: 'Network Graph',  action: () => navigate('/network-graph') },
-                    { icon: '🛡️', label: 'Attack Demos',   action: () => navigate('/attack-demo') },
                   ].map(item => (
                     <button
                       key={item.label}

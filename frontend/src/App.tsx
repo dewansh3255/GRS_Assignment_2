@@ -12,7 +12,6 @@ import People from './pages/People';
 import ProfilePage from './pages/Profile';
 import MyProfile from './pages/MyProfile';
 import NetworkGraph from './pages/NetworkGraph';
-import AttackDemo from './pages/AttackDemo';
 import { API_BASE_URL } from './services/api';
 import { CryptoProvider } from './contexts/CryptoContext';
 
@@ -50,7 +49,6 @@ function App() {
           <Route path="/profile/:username" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
           <Route path="/my-profile" element={<PrivateRoute><MyProfile /></PrivateRoute>} />
           <Route path="/network-graph" element={<PrivateRoute><NetworkGraph /></PrivateRoute>} />
-          <Route path="/attack-demo" element={<PrivateRoute><AttackDemo /></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </Router>
