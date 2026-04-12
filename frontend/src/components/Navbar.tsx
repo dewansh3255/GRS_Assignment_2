@@ -32,6 +32,8 @@ const NOTIF_ICON: Record<string, string> = {
   CONNECTION_REQUEST: '🤝',
   CONNECTION_ACCEPTED: '✅',
   NEW_POST: '📝',
+  COMPANY_ASSIGNED: '🏢',
+  JOB_APPLICATION: '📋',
 };
 
 export default function Navbar({ role, username }: NavbarProps) {

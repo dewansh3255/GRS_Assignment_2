@@ -158,11 +158,17 @@
 #         return f"{self.applicant.username} → {self.job.title}"
 
 import os
+import base64
+import hashlib
 from django.db import models
 from django.conf import settings
 from django.core.files.base import ContentFile
 from cryptography.fernet import Fernet
 
+def get_master_fernet():
+    """Derives a deterministic Master Fernet key from the site's SECRET_KEY"""
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest())
+    return Fernet(key)
 
 class Resume(models.Model):
     user = models.ForeignKey(
@@ -211,9 +217,11 @@ class Resume(models.Model):
             if os.path.exists(old_file_path):
                 os.remove(old_file_path)
 
+            encrypted_key = get_master_fernet().encrypt(key).decode()
+
             ResumeKey.objects.update_or_create(
                 resume=self,
-                defaults={"key": key.decode()}
+                defaults={"key": encrypted_key}
             )
 
             kwargs.pop('force_insert', None)

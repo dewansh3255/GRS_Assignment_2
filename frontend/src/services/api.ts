@@ -604,6 +604,17 @@ export const removeGroupMember = async (groupId: number, userId: number) => {
   return true;
 };
 
+export const rotateGroupKeys = async (groupId: number, keys: {user_id: number, encrypted_key: string}[]) => {
+  const response = await secureFetch(`${API_BASE_URL}/api/auth/groups/${groupId}/rotate/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ keys }),
+  });
+  if (!response.ok) throw new Error('Failed to rotate group keys');
+  return response.json();
+};
+
 export const promoteGroupMember = async (groupId: number, userId: number) => {
   const response = await secureFetch(`${API_BASE_URL}/api/auth/groups/${groupId}/members/${userId}/`, {
     method: 'PATCH',

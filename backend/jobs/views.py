@@ -98,8 +98,10 @@ class DownloadResumeView(APIView):
         encrypted = resume.file.read()
 
         try:
+            from .models import get_master_fernet
             key_obj = resume.resume_key
-            f = Fernet(key_obj.key.encode())
+            raw_key = get_master_fernet().decrypt(key_obj.key.encode())
+            f = Fernet(raw_key)
             decrypted = f.decrypt(encrypted)
         except Exception:
             return HttpResponseForbidden("Unable to decrypt file")
@@ -131,8 +133,8 @@ class DeleteResumeView(APIView):
         except Resume.DoesNotExist:
             raise Http404("Resume not found")
 
-        # security check: only owner or explicitly authorized recruiter can delete
-        if request.user != resume.user and request.user not in resume.authorized_recruiters.all():
+        # security check: only owner can delete their canonical resume
+        if request.user != resume.user:
             return HttpResponseForbidden("You do not have permission to delete this file.")
 
         # perform deletion inside a transaction
@@ -268,6 +270,31 @@ class JobListCreateView(generics.ListCreateAPIView):
         return qs
 
     def perform_create(self, serializer):
+        from rest_framework.exceptions import PermissionDenied, ValidationError
+        import datetime
+        
+        user = self.request.user
+        
+        if user.role != 'RECRUITER':
+            raise PermissionDenied("Only recruiters can post jobs.")
+            
+        company = serializer.validated_data.get('company')
+        if company and company.owner != user and user not in company.employees.all():
+            raise PermissionDenied("You can only post jobs for your company.")
+
+        s_min = serializer.validated_data.get('salary_min')
+        s_max = serializer.validated_data.get('salary_max')
+        deadline = serializer.validated_data.get('deadline')
+        
+        if s_min is not None and s_min < 0:
+            raise ValidationError({"salary_min": "Salary cannot be negative."})
+        if s_max is not None and s_max < 0:
+            raise ValidationError({"salary_max": "Salary cannot be negative."})
+        if s_min is not None and s_max is not None and s_max < s_min:
+            raise ValidationError({"salary_max": "Max salary cannot be less than Min salary."})
+        if deadline and deadline < datetime.date.today():
+             raise ValidationError({"deadline": "Deadline cannot be in the past."})
+
         job = serializer.save()
         create_audit_log('JOB_POSTING_CREATED', self.request.user, {
             'job_id': job.id,
@@ -337,6 +364,17 @@ class ApplicationListCreateView(generics.ListCreateAPIView):
             'job_title': application.job.title,
             'resume_id': application.resume.id if application.resume else None
         })
+
+        # Notify the job owner
+        from accounts.models import Notification
+        job_owner = application.job.company.owner
+        if job_owner != self.request.user:
+            Notification.objects.create(
+                recipient=job_owner,
+                sender=self.request.user,
+                notif_type='JOB_APPLICATION',
+                message=f'{self.request.user.username} applied to your job: {application.job.title}',
+            )
 
 
 class ApplicationDetailView(generics.RetrieveUpdateAPIView):
@@ -424,8 +462,10 @@ class DownloadApplicationResumeView(APIView):
             resume.file.open('rb')
             encrypted = resume.file.read()
 
+            from .models import get_master_fernet
             key_obj = resume.resume_key
-            f = Fernet(key_obj.key.encode())
+            raw_key = get_master_fernet().decrypt(key_obj.key.encode())
+            f = Fernet(raw_key)
             decrypted = f.decrypt(encrypted)
         except Exception as e:
             return HttpResponseForbidden("Unable to decrypt file")

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   getUsersList, getPublicKey, sendEncryptedMessage, getMessages, getMyKeys,
-  getMyGroups, createGroup, fetchGroupMessages, sendGroupMessage, addGroupMember, removeGroupMember, promoteGroupMember, deleteGroup
+  getMyGroups, createGroup, fetchGroupMessages, sendGroupMessage, addGroupMember, removeGroupMember, promoteGroupMember, deleteGroup, rotateGroupKeys
 } from '../services/api';
 import { 
   encryptMessage, decryptMessage,
@@ -287,8 +287,33 @@ export default function ChatWidget() {
     if (!window.confirm("Remove this user?")) return;
     try {
       await removeGroupMember(selectedGroup.id, userId);
+      
+      // 1. Generate new AES group key (Forward Secrecy!)
+      const newKey = await generateGroupKey();
+      
+      // 2. Identify remaining members (ourselves included, minus the kicked user)
+      const remainingUsers = selectedGroup.members.filter((m: any) => m.user !== userId);
+      
+      // 3. Fetch all of their public keys
+      const keyMapList = await Promise.all(remainingUsers.map(async (m: any) => {
+          const keyData = await getPublicKey(m.username);
+          return { userId: m.user, publicKeyBase64: keyData.public_key };
+      }));
+      
+      // 4. Wrap new key for all remaining members at once
+      const wrappedData = await wrapGroupKeyForMembers(newKey, keyMapList);
+      
+      // 5. Submit to Rotation Endpoint
+      await rotateGroupKeys(
+        selectedGroup.id, 
+        wrappedData.map(w => ({user_id: w.userId, encrypted_key: w.encrypted_key}))
+      );
+      
+      // 6. Update local session immediately so we stay connected
+      setUnwrappedGroupKeys(prev => ({...prev, [selectedGroup.id]: newKey}));
+      
       fetchGroupsData();
-    } catch (err) { alert("Failed to remove user."); }
+    } catch (err) { alert("Failed to remove user and rotate keys."); }
   };
 
   const handleDeleteGroup = async () => {

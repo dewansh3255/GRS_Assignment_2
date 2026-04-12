@@ -131,7 +131,33 @@ export default function Login() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f1f5f9' }}>
       <div style={box}>
-        <h2 style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 6, color: '#1e293b' }}>
+        <h2 style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 6, color: '#1e293b', position: 'relative' }}>
+          {step === 2 && (
+            <button
+              onClick={() => { setStep(1); setOtpCode(''); setError(''); }}
+              style={{
+                position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: '#64748b', fontSize: 18, padding: '0 4px',
+              }}
+              title="Back to login"
+            >
+              ←
+            </button>
+          )}
+          {step === 3 && (
+            <button
+              onClick={() => { setStep(2); setBackupCode(''); setError(''); }}
+              style={{
+                position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: '#64748b', fontSize: 18, padding: '0 4px',
+              }}
+              title="Back to 2FA"
+            >
+              ←
+            </button>
+          )}
           {step === 1 ? 'Sign In' : step === 2 ? '2FA Verification' : 'Backup Code Login'}
         </h2>
         <p style={{ textAlign: 'center', color: '#64748b', fontSize: 13, marginBottom: 22, marginTop: 0 }}>
@@ -203,8 +229,19 @@ export default function Login() {
               }}
             />
             <VirtualKeyboard
-              disabled={otpCode.length >= 6}
-              onKeyPress={(key) => setOtpCode(prev => (prev.length < 6 ? prev + key : prev))}
+              onKeyPress={(key) => {
+                setOtpCode(prev => {
+                  if (prev.length >= 6) return prev;
+                  const next = prev + key;
+                  // auto-submit when 6th digit is entered
+                  if (next.length === 6) {
+                    setTimeout(() => {
+                      document.getElementById('totp-submit-btn')?.click();
+                    }, 100);
+                  }
+                  return next;
+                });
+              }}
               onDelete={() => setOtpCode(prev => prev.slice(0, -1))}
               onClear={() => setOtpCode('')}
             />
@@ -227,7 +264,7 @@ export default function Login() {
               </div>
             )}
 
-            <button type="submit" style={{
+            <button id="totp-submit-btn" type="submit" style={{
               width: '100%', padding: '10px', borderRadius: 8, background: '#16a34a',
               color: 'white', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer',
               marginTop: 16

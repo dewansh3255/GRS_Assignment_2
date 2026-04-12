@@ -20,6 +20,7 @@ from .views import (
     GroupDetailView,
     GroupMemberManageView,
     GroupMessageListCreateView,
+    GroupKeyRotateView,
     # Member 1: Social
     UserSearchView,
     PublicProfileView,
@@ -96,6 +97,7 @@ urlpatterns = [
     path('groups/<int:group_id>/', GroupDetailView.as_view(), name='group-detail'),
     path('groups/<int:group_id>/members/', GroupMemberManageView.as_view(), name='group-add-member'),
     path('groups/<int:group_id>/members/<int:user_id>/', GroupMemberManageView.as_view(), name='group-manage-member'),
+    path('groups/<int:group_id>/rotate/', GroupKeyRotateView.as_view(), name='group-rotate-keys'),
     path('groups/<int:group_id>/messages/', GroupMessageListCreateView.as_view(), name='group-messages'),
 
     # Member 1: Social Feed — specific post DELETE before generic feed

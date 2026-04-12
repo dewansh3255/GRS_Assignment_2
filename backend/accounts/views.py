@@ -31,6 +31,9 @@ class LoginRateThrottle(AnonRateThrottle):
     """5 TOTP/login attempts per minute per IP — brute force protection."""
     rate = '5/min'
 
+class ProfileRateThrottle(AnonRateThrottle):
+    rate = '30/min'
+
 
 # ── TOTP Lockout helpers ────────────────────────────────────────────────────
 TOTP_MAX_ATTEMPTS = 3
@@ -192,9 +195,12 @@ class GenerateTOTPURIView(APIView):
     """
     MEMBER A: TOTP Setup (Requires user_id now)
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
+        if request.user.id != user_id:
+            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+            
         user = get_object_or_404(User, id=user_id)
 
         totp = pyotp.TOTP(user.totp_secret)
@@ -678,6 +684,41 @@ class GroupMemberManageView(APIView):
         return Response({"message": "Member removed."}, status=status.HTTP_204_NO_CONTENT)
 
 
+class GroupKeyRotateView(APIView):
+    """
+    MEMBER B: Forward Secrecy / Key Rotation
+    Allows an admin/owner to bulk-update the encrypted AES group keys for all remaining members.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def patch(self, request, group_id):
+        group = get_object_or_404(ChatGroup, id=group_id)
+        
+        # Verify requester has permission
+        try:
+            requester_membership = GroupMember.objects.get(group=group, user=request.user)
+            if requester_membership.role not in ['owner', 'admin']:
+                return Response({"error": "Admin privileges required."}, status=status.HTTP_403_FORBIDDEN)
+        except GroupMember.DoesNotExist:
+            return Response({"error": "You are not a member of this group."}, status=status.HTTP_403_FORBIDDEN)
+
+        keys_data = request.data.get('keys', [])
+        if not keys_data:
+            return Response({"error": "Keys data is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated_count = 0
+        for item in keys_data:
+            user_id = item.get('user_id')
+            encrypted_key = item.get('encrypted_key')
+            if user_id and encrypted_key:
+                # Update the member's encrypted key
+                updated = GroupMember.objects.filter(group=group, user_id=user_id).update(encrypted_group_key=encrypted_key)
+                updated_count += updated
+
+        return Response({"message": f"Successfully rotated keys for {updated_count} members."}, status=status.HTTP_200_OK)
+
+
 class GroupMessageListCreateView(APIView):
     """
     MEMBER B: E2EE Group Messaging Endpoint
@@ -788,6 +829,7 @@ class PublicProfileView(APIView):
     GET /api/auth/profile/<username>/public/
     """
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ProfileRateThrottle]
 
     def get(self, request, username):
         target_user = get_object_or_404(User, username=username)
@@ -940,6 +982,12 @@ class ConnectionDetailView(APIView):
             ).delete()
             return Response({'message': f'Now connected with {conn.sender.username}!'})
         elif action == 'REJECT':
+            # Remove the original CONNECTION_REQUEST notification
+            Notification.objects.filter(
+                recipient=request.user,
+                related_connection_id=conn.id,
+                notif_type='CONNECTION_REQUEST',
+            ).delete()
             conn.delete()
             return Response({'message': 'Request declined.'})
         else:
@@ -1183,6 +1231,14 @@ class ProfilePictureUploadView(APIView):
             return Response({'error': 'File must be an image.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        # Size check — 2 MB max
+        max_size_mb = 2
+        if file.size > max_size_mb * 1024 * 1024:
+            return Response(
+                {'error': f'Image is too large ({file.size // (1024*1024) + 1} MB). Please upload an image under {max_size_mb} MB.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         profile = request.user.profile
         profile.profile_picture = file
         profile.save()
@@ -1424,6 +1480,7 @@ class VerifyBackupCodeView(APIView):
     Body: { user_id, backup_code }
     """
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         user_id = request.data.get('user_id')
@@ -1632,6 +1689,7 @@ class SendEmailOTPView(APIView):
 class VerifyEmailOTPView(APIView):
     """Verifies the OTP and permanently locks the email address."""
     permission_classes = [IsAuthenticated]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         user = request.user

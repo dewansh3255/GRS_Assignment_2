@@ -214,6 +214,7 @@ class Notification(models.Model):
         ('CONNECTION_ACCEPTED', 'Connection Accepted'),
         ('NEW_POST', 'New Post from Connection'),
         ('COMPANY_ASSIGNED', 'Added as Company Recruiter'),
+        ('JOB_APPLICATION', 'Job Application Received'),
     ]
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')

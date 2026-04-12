@@ -330,12 +330,12 @@ export default function Recruiter() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div><label style={labelStyle}>Min Salary (₹)</label>
-                    <input type="number" style={inputStyle} value={jobForm.salary_min} onChange={e => setJobForm({ ...jobForm, salary_min: e.target.value })} /></div>
+                    <input type="number" min="0" style={inputStyle} value={jobForm.salary_min} onChange={e => setJobForm({ ...jobForm, salary_min: e.target.value })} /></div>
                   <div><label style={labelStyle}>Max Salary (₹)</label>
-                    <input type="number" style={inputStyle} value={jobForm.salary_max} onChange={e => setJobForm({ ...jobForm, salary_max: e.target.value })} /></div>
+                    <input type="number" min={jobForm.salary_min || 0} style={inputStyle} value={jobForm.salary_max} onChange={e => setJobForm({ ...jobForm, salary_max: e.target.value })} /></div>
                 </div>
                 <div><label style={labelStyle}>Application Deadline</label>
-                  <input type="date" style={inputStyle} value={jobForm.deadline} onChange={e => setJobForm({ ...jobForm, deadline: e.target.value })} /></div>
+                  <input type="date" min={new Date().toISOString().split('T')[0]} style={inputStyle} value={jobForm.deadline} onChange={e => setJobForm({ ...jobForm, deadline: e.target.value })} /></div>
                 <button type="submit" style={{
                   background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: '#fff',
                   border: 'none', borderRadius: 8, padding: '12px',

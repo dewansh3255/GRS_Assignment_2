@@ -294,6 +294,19 @@ export default function Settings() {
                     placeholder="Enter new email address" 
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        setEmailError('');
+                        try {
+                          await sendEmailOtp(emailInput);
+                          setIsOtpSent(true);
+                          setEmailMessage('OTP sent! It expires in 10 minutes.');
+                        } catch (err: any) {
+                          setEmailError(err.message || 'Failed to send OTP');
+                        }
+                      }
+                    }}
                     style={{...inputStyle, flex: 1}}
                   />
                   <Btn onClick={async () => {
@@ -317,6 +330,19 @@ export default function Settings() {
                     maxLength={6}
                     value={otpInput}
                     onChange={(e) => setOtpInput(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        setEmailError('');
+                        try {
+                          await verifyEmailOtp(otpInput);
+                          setEmailMessage('Email verified successfully!');
+                          setProfile({ ...profile, is_email_verified: true, email: emailInput });
+                        } catch (err: any) {
+                          setEmailError(err.message || 'Invalid OTP');
+                        }
+                      }
+                    }}
                     style={{...inputStyle, flex: 1, letterSpacing: '0.2em', textAlign: 'center', fontWeight: 'bold'}}
                   />
                   <Btn onClick={async () => {

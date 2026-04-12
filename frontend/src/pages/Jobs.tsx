@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { getJobs, applyToJob, getMyResumes, getMyProfile } from '../services/api';
+import { getJobs, applyToJob, getMyResumes, getMyProfile, getApplications } from '../services/api';
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   FULL_TIME: 'Full Time',
@@ -20,6 +20,7 @@ export default function Jobs() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [resumes, setResumes] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
+  const [appliedJobIds, setAppliedJobIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [jobType, setJobType] = useState('');
@@ -48,6 +49,9 @@ export default function Jobs() {
     loadJobs();
     getMyResumes().then(setResumes).catch(() => {});
     getMyProfile().then(setProfile).catch(() => navigate('/login'));
+    getApplications().then((apps: any[]) => {
+      setAppliedJobIds(new Set(apps.map((a: any) => a.job)));
+    }).catch(() => {});
   }, []);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -63,6 +67,7 @@ export default function Jobs() {
     try {
       await applyToJob(selectedJob.id, selectedResume, coverNote);
       setMessage(`Successfully applied to ${selectedJob.title}!`);
+      setAppliedJobIds(prev => new Set(prev).add(selectedJob.id));
       setApplyModal(false);
       setCoverNote('');
       setSelectedResume(null);
@@ -253,23 +258,49 @@ export default function Jobs() {
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minWidth: 100 }}>
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        setSelectedJob(job);
-                        setApplyModal(true);
-                        setError('');
-                        setMessage('');
-                      }}
-                      style={{
-                        background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                        color: '#fff', border: 'none', borderRadius: 8,
-                        padding: '10px 20px', fontSize: 14, fontWeight: 600,
-                        cursor: 'pointer', whiteSpace: 'nowrap' as const,
-                      }}
-                    >
-                      Apply Now
-                    </button>
+                    {appliedJobIds.has(job.id) ? (
+                      <button
+                        disabled
+                        style={{
+                          background: '#f1f5f9',
+                          color: '#475569', border: '1px solid #cbd5e1', borderRadius: 8,
+                          padding: '10px 20px', fontSize: 14, fontWeight: 600,
+                          cursor: 'default', whiteSpace: 'nowrap' as const,
+                        }}
+                      >
+                        Applied
+                      </button>
+                    ) : job.deadline && new Date(job.deadline) < new Date(new Date().setHours(0,0,0,0)) ? (
+                      <button
+                        disabled
+                        style={{
+                          background: '#fee2e2',
+                          color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: 8,
+                          padding: '10px 20px', fontSize: 14, fontWeight: 600,
+                          cursor: 'default', whiteSpace: 'nowrap' as const,
+                        }}
+                      >
+                        Expired
+                      </button>
+                    ) : (
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setSelectedJob(job);
+                          setApplyModal(true);
+                          setError('');
+                          setMessage('');
+                        }}
+                        style={{
+                          background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                          color: '#fff', border: 'none', borderRadius: 8,
+                          padding: '10px 20px', fontSize: 14, fontWeight: 600,
+                          cursor: 'pointer', whiteSpace: 'nowrap' as const,
+                        }}
+                      >
+                        Apply Now
+                      </button>
+                    )}
                   </div>
                 </div>
               );

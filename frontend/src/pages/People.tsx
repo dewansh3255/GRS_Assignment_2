@@ -339,45 +339,28 @@ export default function People() {
               </div>
             </div>
 
-            {/* ── Suggestions ─────────────────────────────────────────── */}
-            {suggestions.length > 0 && activeTab === 'network' && (
-              <div className="mb-8">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">People you may know</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {suggestions.map(user => (
-                    <UserCardUI
-                      key={user.id}
-                      user={user}
-                      loading={actionLoading !== null && (actionLoading === user.id || actionLoading === user.connection_id)}
-                      onView={() => navigate(`/profile/${user.username}`)}
-                      onConnect={() => handleConnect(user.username, user.id)}
-                      onRespond={handleRespond}
-                      onRemove={() => handleRemove(user.connection_id!)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* ── Tab: My Network ─────────────────────────────────────── */}
             {activeTab === 'network' && (
               connections.connections.length === 0 ? (
-                <div className="text-center py-24 text-gray-400">
+                <div className="text-center py-12 text-gray-400">
                   <div className="text-6xl mb-4">🤝</div>
                   <p className="text-lg font-medium">No connections yet</p>
                   <p className="text-sm mt-1">Use the search bar above to find people to connect with</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {connections.connections.map(conn => (
-                    <div key={conn.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarGradient(conn.username)} flex items-center justify-center text-white font-bold text-lg shadow-sm`}>
-                          {conn.username[0].toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-gray-900 truncate">{conn.username}</p>
-                          {conn.headline && <p className="text-xs text-gray-500 truncate">{conn.headline}</p>}
+                <div className="mb-8">
+                  <h2 className="text-lg font-bold text-gray-900 mb-4">Your Connections</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {connections.connections.map(conn => (
+                      <div key={conn.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarGradient(conn.username)} flex items-center justify-center text-white font-bold text-lg shadow-sm`}>
+                            {conn.username[0].toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 truncate">{conn.username}</p>
+                            {conn.headline && <p className="text-xs text-gray-500 truncate">{conn.headline}</p>}
                           <span className={`inline-flex items-center px-2 py-0.5 mt-1 rounded-full text-[10px] font-semibold border ${roleBadge(conn.role)}`}>
                             {conn.role}
                           </span>
@@ -395,9 +378,31 @@ export default function People() {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               )
             )}
+
+            {/* ── Suggestions (always below connections) ────────────────── */}
+            {suggestions.length > 0 && activeTab === 'network' && (
+              <div className="mt-6">
+                <h2 className="text-lg font-bold text-gray-900 mb-4">People you may know</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {suggestions.map(user => (
+                    <UserCardUI
+                      key={user.id}
+                      user={user}
+                      loading={actionLoading !== null && (actionLoading === user.id || actionLoading === user.connection_id)}
+                      onView={() => navigate(`/profile/${user.username}`)}
+                      onConnect={() => handleConnect(user.username, user.id)}
+                      onRespond={handleRespond}
+                      onRemove={() => handleRemove(user.connection_id!)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
 
             {/* ── Tab: Requests ───────────────────────────────────────── */}
             {activeTab === 'requests' && (
