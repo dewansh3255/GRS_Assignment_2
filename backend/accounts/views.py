@@ -214,6 +214,65 @@ def _clear_reg_totp_lockout(session_id: str):
 # ────────────────────────────────────────────────────
 
 
+# ── UNIFIED 2FA ACCOUNT LOCKOUT (fixes method-switching bypass) ───────────────
+# CRITICAL FIX: Account-level lockout that affects ALL 2FA methods
+# When any 2FA method fails 3 times, the ENTIRE ACCOUNT is locked for 15 mins
+# This prevents bypassing the lockout by switching from TOTP to backup codes
+SHARED_2FA_MAX_ATTEMPTS = 3
+SHARED_2FA_LOCKOUT_SECONDS = 15 * 60  # 15 minutes
+
+
+def _account_2fa_fail_key(user_id: int) -> str:
+    """Shared failure counter for ALL 2FA methods (TOTP, Backup, Email OTP)."""
+    return f"2fa_fail_count_{user_id}"
+
+
+def _account_2fa_lock_key(user_id: int) -> str:
+    """Unified lockout key that affects ALL 2FA methods for the account."""
+    return f"account_2fa_locked_{user_id}"
+
+
+def _check_account_2fa_lockout(user_id: int):
+    """
+    Check if account is locked for ANY 2FA method.
+    Returns (locked: bool, seconds_remaining: int).
+    """
+    remaining = cache.ttl(_account_2fa_lock_key(user_id))
+    if remaining and remaining > 0:
+        return True, remaining
+    return False, 0
+
+
+def _record_shared_2fa_failure(user_id: int, method: str = "unknown"):
+    """
+    Records a 2FA failure that counts ACROSS ALL METHODS.
+    When shared counter reaches SHARED_2FA_MAX_ATTEMPTS, locks the entire account.
+    
+    This replaces method-specific failure tracking to prevent bypass via method-switching.
+    
+    Returns (locked_now: bool, attempts_remaining: int).
+    """
+    fail_key = _account_2fa_fail_key(user_id)
+    lock_key = _account_2fa_lock_key(user_id)
+    
+    failures = cache.get(fail_key, 0) + 1
+    cache.set(fail_key, failures, timeout=SHARED_2FA_LOCKOUT_SECONDS)
+    
+    if failures >= SHARED_2FA_MAX_ATTEMPTS:
+        cache.set(lock_key, '1', timeout=SHARED_2FA_LOCKOUT_SECONDS)
+        cache.delete(fail_key)
+        return True, 0
+    
+    return False, SHARED_2FA_MAX_ATTEMPTS - failures
+
+
+def _clear_shared_2fa_lockout(user_id: int):
+    """Clear shared 2FA failure state after ANY successful verification."""
+    cache.delete(_account_2fa_fail_key(user_id))
+    cache.delete(_account_2fa_lock_key(user_id))
+# ────────────────────────────────────────────────────────────────────────────
+
+
 class UploadKeysView(APIView):
     """
     MEMBER B: Key Upload Endpoint
@@ -441,16 +500,17 @@ class VerifyTOTPView(APIView):
         user = get_object_or_404(User, id=user_id)
         username = user.username
 
-        # 1. Enforce any active lockout before even checking the code
-        locked, secs = _check_totp_lockout(username)
+        # 1. Check UNIFIED account lockout (blocks ALL 2FA methods)
+        # CRITICAL FIX: Use account-level lockout, not method-specific
+        locked, secs = _check_account_2fa_lockout(user.id)
         if locked:
             mins = secs // 60
-            create_audit_log('LOGIN_TOTP_BLOCKED', user, {
-                'reason': 'Account locked — too many failed TOTP attempts',
+            create_audit_log('LOGIN_2FA_BLOCKED', user, {
+                'reason': 'Account locked — too many failed 2FA attempts across all methods',
                 'seconds_remaining': secs,
             })
             return Response({
-                "error": f"This account is locked due to too many failed 2FA attempts. "
+                "error": f"Account is locked due to too many failed 2FA attempts. "
                          f"Please try again in {mins} minute(s) and {secs % 60} second(s).",
                 "locked": True,
                 "seconds_remaining": secs,
@@ -463,19 +523,21 @@ class VerifyTOTPView(APIView):
 
         if not code_valid:
             err_msg = 'Invalid OTP code.'
-            locked_now, attempts_left = _record_totp_failure(username)
-            create_audit_log('LOGIN_TOTP_FAILED', user, {
+            # CRITICAL FIX: Use unified account lockout instead of per-method lockout
+            locked_now, attempts_left = _record_shared_2fa_failure(user.id, method='TOTP')
+            create_audit_log('LOGIN_2FA_FAILED', user, {
+                'method': 'TOTP',
                 'reason': err_msg,
                 'attempts_remaining': attempts_left,
             })
 
             if locked_now:
                 return Response({
-                    "error": f"Too many failed 2FA attempts. This account has been locked for "
-                             f"{TOTP_LOCKOUT_SECONDS // 60} minutes.",
+                    "error": f"Too many failed 2FA attempts across all methods. "
+                             f"Account locked for {SHARED_2FA_LOCKOUT_SECONDS // 60} minutes.",
                     "locked": True,
-                    "seconds_remaining": TOTP_LOCKOUT_SECONDS,
-                    "minutes_remaining": TOTP_LOCKOUT_SECONDS // 60,
+                    "seconds_remaining": SHARED_2FA_LOCKOUT_SECONDS,
+                    "minutes_remaining": SHARED_2FA_LOCKOUT_SECONDS // 60,
                 }, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
             return Response({
@@ -484,10 +546,10 @@ class VerifyTOTPView(APIView):
                 "attempts_remaining": attempts_left,
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Success — clear lockout and issue cookies
+        # 3. Success — clear unified lockout and issue cookies
         user.is_verified = True
         user.save(update_fields=['is_verified'])
-        _clear_totp_lockout(username)
+        _clear_shared_2fa_lockout(user.id)
 
         create_audit_log('LOGIN_SUCCESS', user, {'user_id': user.id})
 
@@ -1798,16 +1860,18 @@ class VerifyBackupCodeView(APIView):
 
         user = get_object_or_404(User, id=user_id)
 
-        # 1. Check if account is locked due to too many failed attempts
-        locked, secs = _check_backup_code_lockout(user_id)
+        # 1. Check UNIFIED account lockout (affects ALL 2FA methods)
+        # CRITICAL FIX: Use account-level lockout, not backup-code-specific
+        locked, secs = _check_account_2fa_lockout(user_id)
         if locked:
             mins = secs // 60
-            create_audit_log('BACKUP_CODE_BLOCKED', user, {
-                'reason': 'Account locked — too many failed backup code attempts',
+            create_audit_log('LOGIN_2FA_BLOCKED', user, {
+                'method': 'BackupCode',
+                'reason': 'Account locked — too many failed 2FA attempts across all methods',
                 'seconds_remaining': secs,
             })
             return Response({
-                'error': f'This account is locked due to too many failed backup code attempts. '
+                'error': f'Account is locked due to too many failed 2FA attempts. '
                         f'Please try again in {mins} minute(s) and {secs % 60} second(s).',
                 'locked': True,
                 'seconds_remaining': secs,
@@ -1828,19 +1892,21 @@ class VerifyBackupCodeView(APIView):
                 break
 
         if not match:
-            locked_now, attempts_left = _record_backup_code_failure(user_id)
-            create_audit_log('BACKUP_CODE_FAILED', user, {
+            # CRITICAL FIX: Use unified account lockout instead of backup-code-specific lockout
+            locked_now, attempts_left = _record_shared_2fa_failure(user_id, method='BackupCode')
+            create_audit_log('LOGIN_2FA_FAILED', user, {
+                'method': 'BackupCode',
                 'reason': 'invalid_or_used',
                 'attempts_remaining': attempts_left
             })
             
             if locked_now:
                 return Response({
-                    'error': f'Too many failed backup code attempts. This account has been locked for '
-                            f'{TOTP_LOCKOUT_SECONDS // 60} minutes.',
+                    'error': f'Too many failed 2FA attempts across all methods. '
+                            f'Account locked for {SHARED_2FA_LOCKOUT_SECONDS // 60} minutes.',
                     'locked': True,
-                    'seconds_remaining': TOTP_LOCKOUT_SECONDS,
-                    'minutes_remaining': TOTP_LOCKOUT_SECONDS // 60,
+                    'seconds_remaining': SHARED_2FA_LOCKOUT_SECONDS,
+                    'minutes_remaining': SHARED_2FA_LOCKOUT_SECONDS // 60,
                     'attempts_remaining': 0,
                 }, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -1855,7 +1921,7 @@ class VerifyBackupCodeView(APIView):
         match.save()
 
         create_audit_log('LOGIN_WITH_BACKUP_CODE', user, {'backup_code_id': match.id})
-        _clear_backup_code_lockout(user_id)
+        _clear_shared_2fa_lockout(user_id)
 
         # 4. Issue JWT cookies — same as normal TOTP login
         refresh = RefreshToken.for_user(user)
@@ -2063,16 +2129,18 @@ class VerifyEmailOTPView(APIView):
         if getattr(user, 'is_email_verified', False):
             return Response({"error": "Email is already verified."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Check if account is locked due to too many failed attempts
-        locked, secs = _check_email_otp_lockout(user.id)
+        # 1. Check UNIFIED account lockout (affects ALL 2FA methods)
+        # CRITICAL FIX: Use account-level lockout, not email-otp-specific
+        locked, secs = _check_account_2fa_lockout(user.id)
         if locked:
             mins = secs // 60
-            create_audit_log('EMAIL_OTP_BLOCKED', user, {
-                'reason': 'Account locked — too many failed email OTP attempts',
+            create_audit_log('LOGIN_2FA_BLOCKED', user, {
+                'method': 'EmailOTP',
+                'reason': 'Account locked — too many failed 2FA attempts across all methods',
                 'seconds_remaining': secs,
             })
             return Response({
-                'error': f'Email verification temporarily locked due to too many failed attempts. '
+                'error': f'Account is locked due to too many failed 2FA attempts. '
                         f'Please try again in {mins} minute(s) and {secs % 60} second(s).',
                 'locked': True,
                 'seconds_remaining': secs,
@@ -2085,19 +2153,21 @@ class VerifyEmailOTPView(APIView):
 
         # 2. Check if OTP exists and matches
         if not cached_data or cached_data['otp'] != submitted_otp:
-            locked_now, attempts_left = _record_email_otp_failure(user.id)
-            create_audit_log('EMAIL_VERIFY_FAILED', user, {
+            # CRITICAL FIX: Use unified account lockout instead of email-otp-specific lockout
+            locked_now, attempts_left = _record_shared_2fa_failure(user.id, method='EmailOTP')
+            create_audit_log('LOGIN_2FA_FAILED', user, {
+                'method': 'EmailOTP',
                 'reason': 'invalid_or_expired_otp',
                 'attempts_remaining': attempts_left
             })
             
             if locked_now:
                 return Response({
-                    'error': f'Too many failed email OTP attempts. Verification is locked for '
-                            f'{TOTP_LOCKOUT_SECONDS // 60} minutes.',
+                    'error': f'Too many failed 2FA attempts across all methods. '
+                            f'Account locked for {SHARED_2FA_LOCKOUT_SECONDS // 60} minutes.',
                     'locked': True,
-                    'seconds_remaining': TOTP_LOCKOUT_SECONDS,
-                    'minutes_remaining': TOTP_LOCKOUT_SECONDS // 60,
+                    'seconds_remaining': SHARED_2FA_LOCKOUT_SECONDS,
+                    'minutes_remaining': SHARED_2FA_LOCKOUT_SECONDS // 60,
                     'attempts_remaining': 0,
                 }, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -2114,7 +2184,7 @@ class VerifyEmailOTPView(APIView):
 
         # 4. Clean up cache and log the success
         cache.delete(cache_key)
-        _clear_email_otp_lockout(user.id)
+        _clear_shared_2fa_lockout(user.id)
         create_audit_log('EMAIL_VERIFIED', user, {'new_email': user.email})
 
         return Response({"message": "Email successfully verified and locked!"}, status=status.HTTP_200_OK)
