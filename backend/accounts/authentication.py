@@ -28,8 +28,6 @@ class CookieJWTAuthentication(JWTAuthentication):
                 # 3. CsrfExemptionMiddleware already exempts /api/ endpoints
                 # 4. Do NOT call enforce_csrf() - it contradicts the middleware exemption
                 return user, validated_token
-            except PermissionDenied as e:
-                raise e
             except Exception:
                 # Token might be expired or invalid
                 return None
