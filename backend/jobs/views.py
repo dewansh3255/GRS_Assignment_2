@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 
 from .models import Resume, ResumeKey, Company, Job, Application
-from .serializers import ResumeSerializer, CompanySerializer, JobSerializer, ApplicationSerializer
+from .serializers import ResumeSerializer, AdminResumeSerializer, CompanySerializer, JobSerializer, ApplicationSerializer
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status, generics, filters
@@ -511,6 +511,85 @@ class DownloadApplicationResumeView(APIView):
             f = Fernet(raw_key)
             decrypted = f.decrypt(encrypted)
         except Exception as e:
+            return Response({'detail': 'Unable to decrypt resume file. Encryption key may be missing or corrupt.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Strip .enc suffix
+        if basename.endswith('.enc'):
+            basename = basename[:-4]
+
+        return FileResponse(ContentFile(decrypted), filename=basename, content_type=content_type)
+
+
+class AdminAllResumesListView(generics.ListAPIView):
+    """
+    Admin-only endpoint to view all encrypted resumes from all users.
+    Lists resume metadata including user information.
+    """
+    serializer_class = AdminResumeSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Only admins can access this endpoint
+        if self.request.user.role != 'ADMIN':
+            raise PermissionDenied("Only admins can view all resumes.")
+        
+        # Return all resumes, ordered by upload date (newest first)
+        return Resume.objects.all().select_related('user').order_by('-uploaded_at')
+
+
+class AdminDownloadResumeView(APIView):
+    """
+    Admin-only endpoint to download any encrypted resume.
+    Admins can decrypt and download resumes from any user for audit/compliance purposes.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, resume_id, format=None):
+        # Only admins can access this endpoint
+        if request.user.role != 'ADMIN':
+            raise PermissionDenied("Only admins can download user resumes.")
+        
+        try:
+            resume = Resume.objects.get(pk=resume_id)
+        except Resume.DoesNotExist:
+            raise Http404("Resume not found")
+
+        basename = os.path.basename(resume.file.name)
+        
+        # Determine content type
+        content_type = 'application/pdf'
+        if basename.lower().endswith('.docx'):
+            content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+        # Log the admin resume download for audit purposes
+        create_audit_log('RESUME_DOWNLOADED_BY_ADMIN', request.user, {
+            'resume_id': resume.id,
+            'user_id': resume.user.id,
+            'username': resume.user.username,
+        })
+
+        # If not encrypted, serve directly
+        if not resume.is_encrypted or not hasattr(resume, 'resume_key'):
+            try:
+                resume.file.open('rb')
+                file_data = resume.file.read()
+            except Exception:
+                return Response({'detail': 'File not found on server.'}, status=status.HTTP_404_NOT_FOUND)
+            
+            if basename.endswith('.enc'):
+                basename = basename[:-4]
+            return FileResponse(ContentFile(file_data), filename=basename, content_type=content_type)
+
+        # Encrypted — decrypt with Fernet
+        try:
+            resume.file.open('rb')
+            encrypted = resume.file.read()
+            from .models import get_master_fernet
+            key_obj = resume.resume_key
+            raw_key = get_master_fernet().decrypt(key_obj.key.encode())
+            f = Fernet(raw_key)
+            decrypted = f.decrypt(encrypted)
+        except Exception:
             return Response({'detail': 'Unable to decrypt resume file. Encryption key may be missing or corrupt.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Strip .enc suffix

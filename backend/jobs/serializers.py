@@ -9,6 +9,18 @@ class ResumeSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'is_encrypted']
 
 
+class AdminResumeSerializer(serializers.ModelSerializer):
+    """Serializer for admins to view all resumes with user info"""
+    user_username = serializers.ReadOnlyField(source='user.username')
+    user_email = serializers.ReadOnlyField(source='user.email')
+    user_role = serializers.ReadOnlyField(source='user.role')
+    
+    class Meta:
+        model = Resume
+        fields = ['id', 'user', 'user_username', 'user_email', 'user_role', 'file', 'is_encrypted', 'uploaded_at', 'digital_signature']
+        read_only_fields = ['user', 'is_encrypted', 'uploaded_at']
+
+
 class CompanySerializer(serializers.ModelSerializer):
     owner_username = serializers.ReadOnlyField(source='owner.username')
     employees_list = serializers.SerializerMethodField()
