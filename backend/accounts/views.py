@@ -490,6 +490,12 @@ class VerifyTOTPView(APIView):
                 "user_id": user.id,
                 "backup_codes": plaintext_codes
             }, status=status.HTTP_200_OK)
+            
+            # Explicitly set CSRF token cookie after login
+            from django.middleware.csrf import get_token
+            csrf_token = get_token(request)
+            response.set_cookie('csrftoken', csrf_token, httponly=False, secure=True, samesite='Lax')
+            
             response.set_cookie('access_token', str(refresh.access_token), httponly=True, secure=True, samesite='Lax')
             return response
 
@@ -558,6 +564,12 @@ class VerifyTOTPView(APIView):
             {"message": "Logged in securely!", "access_token": str(refresh.access_token), "user_id": user.id},
             status=status.HTTP_200_OK,
         )
+        
+        # Explicitly set CSRF token cookie after login
+        from django.middleware.csrf import get_token
+        csrf_token = get_token(request)
+        response.set_cookie('csrftoken', csrf_token, httponly=False, secure=True, samesite='Lax')
+        
         response.set_cookie('access_token', str(
             refresh.access_token), httponly=True, secure=True, samesite='Lax')
         response.set_cookie('refresh_token', str(
