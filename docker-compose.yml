@@ -53,7 +53,7 @@ services:
       - DEBUG=True
       - EMAIL_HOST_USER=kdewansh16@gmail.com
       - EMAIL_HOST_PASSWORD=ocsapshsudhgbbxi
-      
+      - ADMIN_URL=portal-206-987-secure/
 
   # 4. Frontend (React + Vite)
   frontend:
@@ -81,5 +81,3 @@ services:
 
 volumes:
   postgres_data:
-
-
