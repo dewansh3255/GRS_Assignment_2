@@ -40,6 +40,8 @@ export default function ChatWidget() {
   const [error, setError] = useState('');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Stores the username of a user we want to open a DM with — persists through the unlock flow
+  const pendingUserRef = useRef<string | null>(null);
 
   // Settings State
   const [showGroupSettings, setShowGroupSettings] = useState(false);
@@ -62,31 +64,54 @@ export default function ChatWidget() {
   useEffect(() => {
     const handleOpenChat = async (e: Event) => {
       const customEvent = e as CustomEvent;
+      const targetUsername = customEvent.detail as string;
+      console.log('[ChatWidget] openChat event fired. Target:', targetUsername);
+
+      // Always store the target so unlock flow can re-apply it
+      pendingUserRef.current = targetUsername;
+      console.log('[ChatWidget] pendingUserRef set to:', pendingUserRef.current);
+
       setIsOpen(true);
       setActiveTab('DM');
-      
-      const targetUsername = customEvent.detail;
-      
-      // Fetch the full user list (unfiltered) so we always find the target
+
+      // Try to find the user in the already-fetched list (UserListView includes applicants)
       let list = users;
+      console.log('[ChatWidget] Current users list length:', list.length, '| Contents:', list.map((u: any) => u.username));
+
       if (list.length === 0) {
+        console.log('[ChatWidget] List empty, fetching from API...');
+        try {
           list = await getUsersList();
           setUsers(list);
+          console.log('[ChatWidget] getUsersList() returned:', list.map((u: any) => `${u.username}(connected:${u.is_connected})`));
+        } catch (err) {
+          console.error('[ChatWidget] getUsersList() FAILED:', err);
+          list = [];
+        }
       }
+
       let user = list.find((u: any) => u.username === targetUsername);
-      
-      // If not found in local list (e.g. non-connected applicant), look up their ID
-      // via the public key endpoint which now returns id + username + public_key.
+      console.log('[ChatWidget] User found in list?', user ? `YES id=${user.id}` : 'NO — will try getPublicKey fallback');
+
+      // Fallback: fetch via getPublicKey
       if (!user) {
         try {
+          console.log('[ChatWidget] Calling getPublicKey for:', targetUsername);
           const keyData = await getPublicKey(targetUsername);
+          console.log('[ChatWidget] getPublicKey returned:', keyData);
           user = { id: keyData.id, username: keyData.username, is_connected: false };
-          setUsers((prev: any[]) => [...prev, user]);
-        } catch {
-          setError(`Could not find user: ${targetUsername}`);
+          setUsers((prev: any[]) => {
+            if (prev.some((u: any) => u.id === user!.id)) return prev;
+            return [...prev, user!];
+          });
+        } catch (err) {
+          console.error('[ChatWidget] getPublicKey FAILED:', err);
+          setError(`Cannot open chat: user "${targetUsername}" has not set up encryption keys yet.`);
           return;
         }
       }
+
+      console.log('[ChatWidget] Setting selectedUser to:', user);
       setSelectedUser(user);
     };
     document.addEventListener('openChat', handleOpenChat);
@@ -115,13 +140,58 @@ export default function ChatWidget() {
     e.preventDefault();
     setError('');
     setIsUnlocking(true);
+    console.log('[ChatWidget] handleUnlock called. pendingUserRef:', pendingUserRef.current);
     try {
-      // unlockKey caches both decryption + signing keys in context for the whole session
       const { decryptionKey } = await unlockKey(password);
-      setPassword(''); // clear password from memory immediately
+      console.log('[ChatWidget] unlockKey SUCCESS. isUnlocked will become true.');
+      setPassword('');
       fetchInbox(decryptionKey);
       fetchGroupsData();
+
+      // After unlock, re-apply any pending openChat target so selectedUser is correct
+      if (pendingUserRef.current) {
+        const targetUsername = pendingUserRef.current;
+        console.log('[ChatWidget] Post-unlock: resolving pending user:', targetUsername);
+        // Check current selectedUser first (functional updater reads latest state)
+        setSelectedUser((currentSelected: any) => {
+          console.log('[ChatWidget] setSelectedUser updater — currentSelected:', currentSelected?.username);
+          if (currentSelected && currentSelected.username === targetUsername) {
+            console.log('[ChatWidget] selectedUser already correct, keeping it.');
+            return currentSelected;
+          }
+          return currentSelected; // will be overridden by setTimeout below if needed
+        });
+        // Use a short delay to let state settle, then resolve from fresh users list
+        setTimeout(async () => {
+          console.log('[ChatWidget] setTimeout: fetching fresh users list to resolve pending user...');
+          try {
+            const freshList = await getUsersList();
+            console.log('[ChatWidget] Fresh getUsersList():', freshList.map((u: any) => `${u.username}(connected:${u.is_connected})`));
+            setUsers(freshList);
+            const found = freshList.find((u: any) => u.username === targetUsername);
+            if (found) {
+              console.log('[ChatWidget] Found pending user in fresh list:', found);
+              setSelectedUser(found);
+            } else {
+              console.log('[ChatWidget] Not in fresh list, falling back to getPublicKey...');
+              const keyData = await getPublicKey(targetUsername);
+              const fallback = { id: keyData.id, username: keyData.username, is_connected: false };
+              console.log('[ChatWidget] getPublicKey fallback result:', fallback);
+              setUsers((prev: any[]) => {
+                if (prev.some((u: any) => u.id === fallback.id)) return prev;
+                return [...prev, fallback];
+              });
+              setSelectedUser(fallback);
+            }
+          } catch (err) {
+            console.error('[ChatWidget] Error resolving pending user after unlock:', err);
+          }
+        }, 100);
+      } else {
+        console.log('[ChatWidget] No pendingUserRef set — unlock completed, no target to restore.');
+      }
     } catch (err) {
+      console.error('[ChatWidget] handleUnlock FAILED:', err);
       setError('Failed to unlock. Wrong password?');
     } finally {
       setIsUnlocking(false);
@@ -161,15 +231,20 @@ export default function ChatWidget() {
   const handleSendDM = async () => {
     if (!selectedUser || !inputText) return;
     setError('');
+    console.log('[ChatWidget] handleSendDM — selectedUser:', selectedUser, '| message:', inputText);
     try {
+      console.log('[ChatWidget] Fetching public key for:', selectedUser.username);
       const recipientData = await getPublicKey(selectedUser.username);
+      console.log('[ChatWidget] getPublicKey result — id:', recipientData.id, 'username:', recipientData.username);
       // If the user was added as a fallback (id looked up via getPublicKey), sync the id
       if (selectedUser.id !== recipientData.id) {
+        console.warn('[ChatWidget] selectedUser.id mismatch! Local:', selectedUser.id, 'API:', recipientData.id, '— using API id.');
         setSelectedUser((prev: any) => ({ ...prev, id: recipientData.id }));
       }
       const { encryptedContent, encryptedKey } = await encryptMessage(inputText, recipientData.public_key);
+      console.log('[ChatWidget] Message encrypted. Sending to recipientId:', recipientData.id);
       await sendEncryptedMessage(recipientData.id, encryptedContent, encryptedKey);
-      
+      console.log('[ChatWidget] Message sent successfully!');
       setSentMessages(prev => [...prev, {
         id: 'local-' + Date.now(),
         recipient_username: selectedUser.username,
@@ -179,6 +254,7 @@ export default function ChatWidget() {
       }]);
       setInputText('');
     } catch (err: any) {
+      console.error('[ChatWidget] handleSendDM ERROR:', err.message);
       setError(err.message || 'Failed to send message.');
     }
   };
@@ -467,9 +543,17 @@ export default function ChatWidget() {
               <div className="p-2 border-b bg-gray-100 flex gap-2 items-center">
                 {activeTab === 'DM' ? (
                   <select className="w-full border border-gray-300 p-1.5 rounded text-sm focus:outline-none" 
-                    onChange={(e) => setSelectedUser(users.find(u => u.id === parseInt(e.target.value)))} defaultValue="">
+                    onChange={(e) => setSelectedUser(users.find(u => u.id === parseInt(e.target.value)))} 
+                    value={selectedUser?.id || ""}>
                     <option value="" disabled>Select user...</option>
-                    {users.filter(u => u.is_connected).map(u => <option key={u.id} value={u.id}>@{u.username}</option>)}
+                    {users
+                      .filter(u => u.is_connected || u.id === selectedUser?.id)
+                      .map(u => (
+                        <option key={u.id} value={u.id}>
+                          @{u.username} {!u.is_connected ? '(Applicant)' : ''}
+                        </option>
+                      ))
+                    }
                   </select>
                 ) : (
                   <>

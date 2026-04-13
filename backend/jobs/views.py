@@ -322,19 +322,69 @@ class JobDetailView(generics.RetrieveUpdateDestroyAPIView):
         return obj
 
     def update(self, request, *args, **kwargs):
+        from rest_framework.exceptions import ValidationError
+        
         obj = self.get_object()
         if obj.company.owner != request.user and request.user not in obj.company.employees.all():
             raise PermissionDenied("You can only update jobs for your company.")
         
-        # Get the previous status for audit logging
-        old_is_active = obj.is_active
+        # Check if there are existing applications - prevent full edits, allow only is_active toggle
+        has_applications = obj.applications.exists()
+        
+        # If applications exist, only allow editing is_active field
+        if has_applications and len(request.data) > 0:
+            allowed_fields = {'is_active'}
+            requested_fields = set(request.data.keys())
+            disallowed_fields = requested_fields - allowed_fields
+            
+            if disallowed_fields:
+                raise ValidationError({
+                    "detail": f"Cannot edit job post after applications have been received. "
+                             f"You can only toggle the active status. Attempted to modify: {', '.join(disallowed_fields)}"
+                })
+        
+        # Store old values for audit logging
+        old_values = {
+            'title': obj.title,
+            'description': obj.description,
+            'required_skills': obj.required_skills,
+            'location': obj.location,
+            'job_type': obj.job_type,
+            'salary_min': obj.salary_min,
+            'salary_max': obj.salary_max,
+            'deadline': obj.deadline,
+            'is_active': obj.is_active,
+        }
+        
         response = super().update(request, *args, **kwargs)
+        
+        # Calculate which fields changed
+        new_values = {
+            'title': obj.title,
+            'description': obj.description,
+            'required_skills': obj.required_skills,
+            'location': obj.location,
+            'job_type': obj.job_type,
+            'salary_min': obj.salary_min,
+            'salary_max': obj.salary_max,
+            'deadline': obj.deadline,
+            'is_active': obj.is_active,
+        }
+        
+        changed_fields = {}
+        for field, old_val in old_values.items():
+            if old_val != new_values[field]:
+                changed_fields[field] = {
+                    'old': str(old_val),
+                    'new': str(new_values[field])
+                }
         
         create_audit_log('JOB_POSTING_UPDATED', request.user, {
             'job_id': obj.id,
             'title': obj.title,
             'company_id': obj.company.id,
-            'is_active_changed': old_is_active != obj.is_active
+            'changed_fields': changed_fields,
+            'has_applications': has_applications
         })
         return response
 

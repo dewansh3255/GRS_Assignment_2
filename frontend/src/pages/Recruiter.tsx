@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import {
-  getCompanies, createCompany, createJob,
+  getCompanies, createCompany, createJob, updateJob, deleteJob,
   getApplications, updateApplicationStatus, getMyProfile, getJobs, downloadApplicationResume, getPublicKey,
   addCompanyEmployee, removeCompanyEmployee
 } from '../services/api';
@@ -40,6 +40,10 @@ export default function Recruiter() {
   const [noteInputs, setNoteInputs] = useState<Record<number, string>>({});
   const [employeeInputs, setEmployeeInputs] = useState<Record<number, string>>({});
   const [downloadingResume, setDownloadingResume] = useState<number | null>(null);
+  
+  const [editingJob, setEditingJob] = useState<any>(null);
+  const [editForm, setEditForm] = useState<any>(null);
+  const [editLoading, setEditLoading] = useState(false);
 
   const loadAll = async () => {
     try {
@@ -179,6 +183,57 @@ export default function Recruiter() {
       setError('Failed to download or verify resume. Ensure keys are set up.');
     } finally {
       setDownloadingResume(null);
+    }
+  };
+
+  const handleEditJob = (job: any) => {
+    setEditingJob(job);
+    setEditForm({
+      title: job.title,
+      description: job.description,
+      required_skills: job.required_skills,
+      location: job.location,
+      job_type: job.job_type,
+      salary_min: job.salary_min ? String(job.salary_min) : '',
+      salary_max: job.salary_max ? String(job.salary_max) : '',
+      deadline: job.deadline || '',
+      is_active: job.is_active,
+    });
+    setError('');
+    setMessage('');
+  };
+
+  const handleSaveJobEdit = async () => {
+    if (!editingJob || !editForm) return;
+    setEditLoading(true);
+    setError('');
+    try {
+      await updateJob(editingJob.id, {
+        ...editForm,
+        salary_min: editForm.salary_min ? Number(editForm.salary_min) : null,
+        salary_max: editForm.salary_max ? Number(editForm.salary_max) : null,
+        deadline: editForm.deadline || null,
+      });
+      setMessage('Job updated successfully!');
+      setEditingJob(null);
+      setEditForm(null);
+      loadAll();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update job.');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleDeleteJob = async (jobId: number, jobTitle: string) => {
+    if (confirm(`Are you sure you want to delete the job "${jobTitle}"?`)) {
+      try {
+        await deleteJob(jobId);
+        setMessage('Job deleted successfully!');
+        loadAll();
+      } catch (err: any) {
+        setError(err.message || 'Failed to delete job.');
+      }
     }
   };
 
@@ -358,6 +413,28 @@ export default function Recruiter() {
                         {j.location && <span>📍 {j.location}</span>}
                         <span>• {j.job_type.replace('_', ' ')}</span>
                       </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => handleEditJob(j)}
+                          style={{
+                            background: '#3b82f6', color: '#fff', border: 'none',
+                            borderRadius: 6, padding: '6px 12px', fontSize: 12,
+                            fontWeight: 600, cursor: 'pointer',
+                          }}
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteJob(j.id, j.title)}
+                          style={{
+                            background: '#ef4444', color: '#fff', border: 'none',
+                            borderRadius: 6, padding: '6px 12px', fontSize: 12,
+                            fontWeight: 600, cursor: 'pointer',
+                          }}
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -472,6 +549,174 @@ export default function Recruiter() {
             )}
           </div>
         )}
+
+      {/* Edit Job Modal */}
+      {editingJob && editForm && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, padding: 20, overflowY: 'auto' as const,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16,
+            padding: 32, width: '100%', maxWidth: 600,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            marginY: 'auto' as any,
+          }}>
+            <div style={{ marginBottom: 24 }}>
+              <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: '#0f172a' }}>
+                Edit Job Post
+              </h2>
+              <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>{editingJob.company_name}</p>
+            </div>
+
+            {error && (
+              <div style={{
+                background: '#fef2f2', border: '1px solid #fca5a5',
+                color: '#dc2626', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: 14,
+              }}>{error}</div>
+            )}
+
+            {message && (
+              <div style={{
+                background: '#f0fdf4', border: '1px solid #86efac',
+                color: '#166534', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: 14,
+              }}>{message}</div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14, maxHeight: '60vh', overflowY: 'auto' as const }}>
+              <div>
+                <label style={labelStyle}>Job Title *</label>
+                <input
+                  maxLength={150}
+                  style={inputStyle}
+                  value={editForm.title}
+                  onChange={e => setEditForm({ ...editForm, title: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Description *</label>
+                <textarea
+                  required
+                  rows={3}
+                  maxLength={2000}
+                  style={{ ...inputStyle, resize: 'vertical' as const }}
+                  value={editForm.description}
+                  onChange={e => setEditForm({ ...editForm, description: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Required Skills</label>
+                <input
+                  maxLength={300}
+                  style={inputStyle}
+                  placeholder="React, Python, SQL"
+                  value={editForm.required_skills}
+                  onChange={e => setEditForm({ ...editForm, required_skills: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Location</label>
+                  <input
+                    style={inputStyle}
+                    value={editForm.location}
+                    onChange={e => setEditForm({ ...editForm, location: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Type</label>
+                  <select
+                    style={inputStyle}
+                    value={editForm.job_type}
+                    onChange={e => setEditForm({ ...editForm, job_type: e.target.value })}
+                  >
+                    <option value="FULL_TIME">Full Time</option>
+                    <option value="INTERNSHIP">Internship</option>
+                    <option value="REMOTE">Remote</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Min Salary (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    style={inputStyle}
+                    value={editForm.salary_min}
+                    onChange={e => setEditForm({ ...editForm, salary_min: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Max Salary (₹)</label>
+                  <input
+                    type="number"
+                    min={editForm.salary_min || 0}
+                    style={inputStyle}
+                    value={editForm.salary_max}
+                    onChange={e => setEditForm({ ...editForm, salary_max: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Deadline</label>
+                <input
+                  type="date"
+                  style={inputStyle}
+                  value={editForm.deadline}
+                  onChange={e => setEditForm({ ...editForm, deadline: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{...labelStyle, display: 'flex', alignItems: 'center', gap: 8, textTransform: 'capitalize' as const }}>
+                  <input
+                    type="checkbox"
+                    checked={editForm.is_active}
+                    onChange={e => setEditForm({ ...editForm, is_active: e.target.checked })}
+                    style={{ width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                  Job is Active
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+              <button
+                onClick={handleSaveJobEdit}
+                disabled={editLoading}
+                style={{
+                  flex: 1, background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                  color: '#fff', border: 'none', borderRadius: 8,
+                  padding: '12px', fontSize: 15, fontWeight: 600,
+                  cursor: editLoading ? 'not-allowed' : 'pointer',
+                  opacity: editLoading ? 0.7 : 1,
+                }}
+              >
+                {editLoading ? '⏳ Saving...' : '✅ Save Changes'}
+              </button>
+              <button
+                onClick={() => { setEditingJob(null); setEditForm(null); setError(''); }}
+                disabled={editLoading}
+                style={{
+                  background: '#f1f5f9', color: '#475569', border: 'none',
+                  borderRadius: 8, padding: '12px 20px', fontSize: 15,
+                  fontWeight: 600, cursor: editLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
