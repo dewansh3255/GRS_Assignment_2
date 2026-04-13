@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import ChatWidget from '../components/ChatWidget';
+
 import {
   getMyProfile, getFeed, createPost,
   getMyConnections, getConnectionSuggestions, sendConnectionRequest,
@@ -293,7 +293,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <ChatWidget />
+
     </div>
   );
 }

@@ -366,7 +366,11 @@ export const sendEncryptedMessage = async (recipientId: number, encryptedContent
       encrypted_key: encryptedKey,
     }),
   });
-  if (!response.ok) throw new Error('Failed to send message');
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    const detail = errBody.detail || errBody.error || errBody.message || 'Failed to send message';
+    throw new Error(detail);
+  }
   return response.json();
 };
 

@@ -12,6 +12,7 @@ import People from './pages/People';
 import ProfilePage from './pages/Profile';
 import MyProfile from './pages/MyProfile';
 import NetworkGraph from './pages/NetworkGraph';
+import ChatWidget from './components/ChatWidget';
 import { API_BASE_URL } from './services/api';
 import { CryptoProvider } from './contexts/CryptoContext';
 import { InactivityProvider } from './contexts/InactivityContext';
@@ -71,6 +72,8 @@ function App() {
             <Route path="/network-graph" element={<PrivateRoute><NetworkGraph /></PrivateRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
+          {/* Global chat widget — rendered once, persists across all authenticated pages */}
+          {localStorage.getItem('username') && <ChatWidget />}
         </InactivityProvider>
       </Router>
     </CryptoProvider>

@@ -160,10 +160,15 @@ export default function ChatWidget() {
 
   const handleSendDM = async () => {
     if (!selectedUser || !inputText) return;
+    setError('');
     try {
       const recipientData = await getPublicKey(selectedUser.username);
+      // If the user was added as a fallback (id looked up via getPublicKey), sync the id
+      if (selectedUser.id !== recipientData.id) {
+        setSelectedUser((prev: any) => ({ ...prev, id: recipientData.id }));
+      }
       const { encryptedContent, encryptedKey } = await encryptMessage(inputText, recipientData.public_key);
-      await sendEncryptedMessage(selectedUser.id, encryptedContent, encryptedKey);
+      await sendEncryptedMessage(recipientData.id, encryptedContent, encryptedKey);
       
       setSentMessages(prev => [...prev, {
         id: 'local-' + Date.now(),
@@ -173,8 +178,8 @@ export default function ChatWidget() {
         is_sent: true
       }]);
       setInputText('');
-    } catch (err) {
-      alert('Failed to send message.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send message.');
     }
   };
 
