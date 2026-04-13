@@ -449,21 +449,21 @@ export default function Recruiter() {
                           <span style={{ fontSize: 10, color: '#94a3b8' }}>{(noteInputs[app.id] || '').length}/500</span>
                         </div>
                         <button
-                          onClick={() => document.dispatchEvent(new CustomEvent('openChat', { detail: app.applicant_username }))}
-                          style={{
-                            background: '#8b5cf6', color: '#fff', border: 'none',
-                            borderRadius: 8, padding: '6px 16px', fontSize: 13,
-                            fontWeight: 600, cursor: 'pointer',
-                          }}
-                        >Message</button>
-                        <button
                           onClick={() => handleStatusChange(app.id, app.status)}
                           style={{
                             background: '#10b981', color: '#fff', border: 'none',
                             borderRadius: 8, padding: '6px 16px', fontSize: 13,
-                            fontWeight: 600, cursor: 'pointer',
+                            fontWeight: 600, cursor: 'pointer', flexShrink: 0,
                           }}
                         >Save</button>
+                        <button
+                          onClick={() => document.dispatchEvent(new CustomEvent('openChat', { detail: app.applicant_username }))}
+                          style={{
+                            background: '#8b5cf6', color: '#fff', border: 'none',
+                            borderRadius: 8, padding: '6px 16px', fontSize: 13,
+                            fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+                          }}
+                        >💬 Message</button>
                       </div>
                     </div>
                   );

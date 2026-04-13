@@ -67,16 +67,27 @@ export default function ChatWidget() {
       
       const targetUsername = customEvent.detail;
       
-      // If we don't have users yet, we might have to fetch them.
+      // Fetch the full user list (unfiltered) so we always find the target
       let list = users;
       if (list.length === 0) {
           list = await getUsersList();
           setUsers(list);
       }
-      const user = list.find(u => u.username === targetUsername);
-      if (user) {
-          setSelectedUser(user);
+      let user = list.find((u: any) => u.username === targetUsername);
+      
+      // If not found in local list (e.g. non-connected applicant), look up their ID
+      // via the public key endpoint which now returns id + username + public_key.
+      if (!user) {
+        try {
+          const keyData = await getPublicKey(targetUsername);
+          user = { id: keyData.id, username: keyData.username, is_connected: false };
+          setUsers((prev: any[]) => [...prev, user]);
+        } catch {
+          setError(`Could not find user: ${targetUsername}`);
+          return;
+        }
       }
+      setSelectedUser(user);
     };
     document.addEventListener('openChat', handleOpenChat);
     return () => document.removeEventListener('openChat', handleOpenChat);

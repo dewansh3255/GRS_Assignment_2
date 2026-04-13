@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar';
 import {
   getMyProfile, updateMyProfile,
   uploadResume, getMyResumes, downloadResumeUrl, deleteResume,
-  getMyProfileViewers, uploadProfilePicture,
+  getMyProfileViewers,
 } from '../services/api';
 import { signFileDocument } from '../utils/crypto';
 import { useCrypto } from '../contexts/CryptoContext';
@@ -62,7 +62,7 @@ export default function MyProfile() {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [uploadingPicture, setUploadingPicture] = useState(false);
+
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPrivacy, setSavingPrivacy] = useState(false);
 
@@ -134,17 +134,7 @@ export default function MyProfile() {
     finally { setSavingPrivacy(false); }
   };
 
-  const handlePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingPicture(true);
-    try {
-      await uploadProfilePicture(file);
-      notify('Profile picture updated!');
-      loadAll();
-    } catch (err: any) { setError(err.message || 'Failed to upload picture'); }
-    finally { setUploadingPicture(false); }
-  };
+  // Profile picture upload removed — initials avatar is used instead.
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
@@ -230,20 +220,11 @@ export default function MyProfile() {
           <div className="h-28" style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 60%, #06b6d4 100%)' }} />
           <div className="px-6 pb-6">
             <div className="flex items-end gap-4 -mt-10 mb-3">
-              {/* Avatar / picture */}
+              {/* Avatar — initials only */}
               <div className="relative shrink-0">
                 <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${GRAD(profile.username)} flex items-center justify-center text-white font-bold text-3xl border-4 border-white shadow-md overflow-hidden`}>
-                  {profile.profile_picture_url
-                    ? <img src={profile.profile_picture_url} className="w-full h-full object-cover" alt="avatar" />
-                    : profile.username[0].toUpperCase()}
+                  {profile.username[0].toUpperCase()}
                 </div>
-                <label
-                  className={`absolute -bottom-1 -right-1 w-7 h-7 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center cursor-pointer shadow border-2 border-white transition ${uploadingPicture ? 'opacity-50 cursor-wait' : ''}`}
-                  title="Change profile picture"
-                >
-                  <span className="text-white text-xs">&#128247;</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handlePictureUpload} disabled={uploadingPicture} />
-                </label>
               </div>
 
               <div className="pb-1">

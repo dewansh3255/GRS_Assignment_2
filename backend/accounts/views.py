@@ -395,7 +395,11 @@ class GetPublicKeyView(APIView):
         try:
             # We use .keys because of the related_name='keys' in the UserKeys model
             user_keys = target_user.keys
-            return Response({"public_key": user_keys.public_key}, status=status.HTTP_200_OK)
+            return Response({
+                "id": target_user.id,
+                "username": target_user.username,
+                "public_key": user_keys.public_key
+            }, status=status.HTTP_200_OK)
         except UserKeys.DoesNotExist:
             return Response({"error": "User has not set up their encryption keys yet."}, status=status.HTTP_404_NOT_FOUND)
 
