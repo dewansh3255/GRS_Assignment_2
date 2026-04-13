@@ -311,6 +311,21 @@ export default function ProfilePage() {
             </p>
           </div>
         )}
+
+        {/* ── Feed / Posts ──────────────────────────────────────────── */}
+        {profile.posts && profile.posts.length > 0 && (
+          <div className="mt-4">
+            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Recent Posts</h2>
+            <div className="flex flex-col gap-3">
+              {profile.posts.map((post: any) => (
+                <div key={post.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <p className="text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
+                  <p className="text-xs text-gray-400 mt-3">{new Date(post.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Report Modal */}
@@ -324,10 +339,12 @@ export default function ProfilePage() {
                 onChange={e => setReportReason(e.target.value)}
                 autoFocus
                 required
+                maxLength={500}
                 placeholder="Please describe why you are reporting this user..."
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl mb-4 text-sm"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl mb-1 text-sm"
                 rows={4}
               />
+              <p className="text-xs text-gray-400 mb-3 text-right">{reportReason.length}/500</p>
               <div className="flex justify-end gap-3">
                 <button type="button" disabled={reporting} onClick={() => {setShowReport(false); setReportReason('');}} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-800">
                   Cancel

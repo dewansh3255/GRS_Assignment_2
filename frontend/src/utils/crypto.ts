@@ -321,7 +321,7 @@ export const unwrapGroupKey = async (
     "raw",
     rawAesKey,
     { name: "AES-GCM" },
-    false,
+    true, // Must be extractable so it can be re-wrapped when adding new members
     ["encrypt", "decrypt"]
   );
 };

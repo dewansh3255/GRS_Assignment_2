@@ -386,11 +386,12 @@ export const getMyKeys = async () => {
 };
 
 // --- JOBS API ---
-export const getJobs = async (params?: { q?: string; job_type?: string; location?: string }) => {
+export const getJobs = async (params?: { q?: string; job_type?: string; location?: string; my_jobs?: boolean }) => {
   const query = new URLSearchParams();
   if (params?.q) query.append('q', params.q);
   if (params?.job_type) query.append('job_type', params.job_type);
   if (params?.location) query.append('location', params.location);
+  if (params?.my_jobs) query.append('my_jobs', 'true');
   const response = await secureFetch(`${API_BASE_URL}/api/jobs/jobs/?${query.toString()}`, {
     credentials: 'include',
   });

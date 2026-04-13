@@ -93,35 +93,36 @@ class DownloadResumeView(APIView):
         if request.user != resume.user and request.user not in resume.authorized_recruiters.all():
             return HttpResponseForbidden("You do not have permission to access this file.")
 
-        # read encrypted file
-        resume.file.open('rb')
-        encrypted = resume.file.read()
+        basename = os.path.basename(resume.file.name)
+        if basename.endswith('.enc'):
+            basename = basename[:-4]
 
+        content_type = 'application/pdf'
+        if basename.lower().endswith('.docx'):
+            content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+        if not resume.is_encrypted or not hasattr(resume, 'resume_key'):
+            # Serve raw file directly
+            try:
+                resume.file.open('rb')
+                file_data = resume.file.read()
+            except Exception:
+                return Response({'detail': 'File not found on server.'}, status=status.HTTP_404_NOT_FOUND)
+            return FileResponse(ContentFile(file_data), filename=basename, content_type=content_type)
+
+        # Encrypted — decrypt with Fernet
         try:
+            resume.file.open('rb')
+            encrypted = resume.file.read()
             from .models import get_master_fernet
             key_obj = resume.resume_key
             raw_key = get_master_fernet().decrypt(key_obj.key.encode())
             f = Fernet(raw_key)
             decrypted = f.decrypt(encrypted)
         except Exception:
-            return HttpResponseForbidden("Unable to decrypt file")
+            return Response({'detail': 'Unable to decrypt resume file. Key may be missing or corrupt.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        basename = os.path.basename(resume.file.name)
-        # strip .enc suffix if present
-        if basename.endswith('.enc'):
-            basename = basename[:-4]
-
-        # determine correct content type
-        content_type = 'application/pdf'
-        if basename.lower().endswith('.docx'):
-            content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-
-        response = FileResponse(
-            ContentFile(decrypted), 
-            filename=basename, 
-            content_type=content_type 
-        )
-        return response
+        return FileResponse(ContentFile(decrypted), filename=basename, content_type=content_type)
 
 
 class DeleteResumeView(APIView):
@@ -473,23 +474,12 @@ class DownloadApplicationResumeView(APIView):
 
         resume = application.resume
 
-        # Read encrypted file
-        try:
-            resume.file.open('rb')
-            encrypted = resume.file.read()
-
-            from .models import get_master_fernet
-            key_obj = resume.resume_key
-            raw_key = get_master_fernet().decrypt(key_obj.key.encode())
-            f = Fernet(raw_key)
-            decrypted = f.decrypt(encrypted)
-        except Exception as e:
-            return HttpResponseForbidden("Unable to decrypt file")
-
-        # Strip .enc suffix if present
         basename = os.path.basename(resume.file.name)
-        if basename.endswith('.enc'):
-            basename = basename[:-4]
+
+        # Determine content type
+        content_type = 'application/pdf'
+        if basename.lower().endswith('.docx'):
+            content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
         # Log the resume download
         create_audit_log('RESUME_DOWNLOADED_BY_RECRUITER', request.user, {
@@ -499,14 +489,32 @@ class DownloadApplicationResumeView(APIView):
             'job_id': application.job.id
         })
 
-        # determine correct content type
-        content_type = 'application/pdf'
-        if basename.lower().endswith('.docx'):
-            content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        # If the file is not encrypted just serve it directly
+        if not resume.is_encrypted or not hasattr(resume, 'resume_key'):
+            try:
+                resume.file.open('rb')
+                file_data = resume.file.read()
+            except Exception:
+                return Response({'detail': 'File not found on server.'}, status=status.HTTP_404_NOT_FOUND)
+            # Strip .enc suffix if present (shouldn't be, but defensively)
+            if basename.endswith('.enc'):
+                basename = basename[:-4]
+            return FileResponse(ContentFile(file_data), filename=basename, content_type=content_type)
 
-        response = FileResponse(
-            ContentFile(decrypted),
-            filename=basename,
-            content_type=content_type
-        )
-        return response
+        # File is encrypted — attempt Fernet decryption
+        try:
+            resume.file.open('rb')
+            encrypted = resume.file.read()
+            from .models import get_master_fernet
+            key_obj = resume.resume_key
+            raw_key = get_master_fernet().decrypt(key_obj.key.encode())
+            f = Fernet(raw_key)
+            decrypted = f.decrypt(encrypted)
+        except Exception as e:
+            return Response({'detail': 'Unable to decrypt resume file. Encryption key may be missing or corrupt.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Strip .enc suffix
+        if basename.endswith('.enc'):
+            basename = basename[:-4]
+
+        return FileResponse(ContentFile(decrypted), filename=basename, content_type=content_type)

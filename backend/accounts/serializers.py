@@ -23,8 +23,17 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if not re.search(r'\d', value):
             raise serializers.ValidationError("Password must contain at least one number.")
         if not re.search(r'[@$!%*?&#^_-]', value):
-            raise serializers.ValidationError("Password must contain at least one special character.")
+            raise serializers.ValidationError("Password must contain at least one special character (@$!%*?&#^_-).")
         return value
+
+    def validate_email(self, value):
+        # Accept broad email formats: local@domain.tld (allows subdomains, plus-addressing, etc.)
+        pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+        if not re.match(pattern, value.strip()):
+            raise serializers.ValidationError(
+                "Enter a valid email address (e.g. user@example.com, user+tag@sub.domain.org)."
+            )
+        return value.strip().lower()
 
     def to_internal_value(self, data):
         # Convert empty strings to None for unique char fields so they don't trigger integrity errors

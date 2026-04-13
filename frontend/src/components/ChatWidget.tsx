@@ -453,7 +453,7 @@ export default function ChatWidget() {
                   <select className="w-full border border-gray-300 p-1.5 rounded text-sm focus:outline-none" 
                     onChange={(e) => setSelectedUser(users.find(u => u.id === parseInt(e.target.value)))} defaultValue="">
                     <option value="" disabled>Select user...</option>
-                    {users.map(u => <option key={u.id} value={u.id}>@{u.username}</option>)}
+                    {users.filter(u => u.is_connected).map(u => <option key={u.id} value={u.id}>@{u.username}</option>)}
                   </select>
                 ) : (
                   <>
@@ -509,7 +509,7 @@ export default function ChatWidget() {
                     <form onSubmit={handleAddMember} className="mb-6 flex gap-2">
                       <select className="border p-1 text-sm rounded flex-1" value={newMemberId} onChange={e => setNewMemberId(e.target.value)} required>
                         <option value="" disabled>Add new member...</option>
-                        {users.filter(u => !selectedGroup.members.find((m: any) => m.user === u.id)).map(u => (
+                        {users.filter(u => u.is_connected && !selectedGroup.members.find((m: any) => m.user === u.id)).map(u => (
                           <option key={u.id} value={u.id}>@{u.username}</option>
                         ))}
                       </select>

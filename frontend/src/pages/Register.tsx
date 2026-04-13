@@ -18,11 +18,17 @@ export default function Register() {
   const [formData, setFormData] = useState({
     username: '', email: '', password: '', phone_number: ''
   });
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswordRules, setShowPasswordRules] = useState(false);
 
   // Step 1: Submit the Registration Form
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (formData.password !== confirmPassword) {
+      setError('Passwords do not match. Please re-enter them.');
+      return;
+    }
     try {
       const data = await registerUser(formData);
       setSessionId(data.session_id);
@@ -79,17 +85,54 @@ export default function Register() {
           <form onSubmit={handleRegisterSubmit}>
             <input type="text" placeholder="Username" required
               className="w-full border p-2 mb-4 rounded"
+              value={formData.username}
               onChange={e => setFormData({ ...formData, username: e.target.value })} />
-            <input type="email" placeholder="Email" required
+            <input
+              type="text"
+              placeholder="Email (e.g. user@example.com)"
+              required
+              pattern="^[^\s@]+@[^\s@]+\.[^\s@]+$"
+              title="Please enter a valid email address"
               className="w-full border p-2 mb-4 rounded"
+              value={formData.email}
               onChange={e => setFormData({ ...formData, email: e.target.value })} />
-            <input type="password" placeholder="Password" required
-              className="w-full border p-2 mb-4 rounded"
-              onChange={e => setFormData({ ...formData, password: e.target.value })} />
+            <div className="relative mb-4">
+              <input type="password" placeholder="Password" required
+                className="w-full border p-2 rounded pr-10"
+                value={formData.password}
+                onChange={e => setFormData({ ...formData, password: e.target.value })} />
+              <button type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center hover:bg-blue-200"
+                onMouseEnter={() => setShowPasswordRules(true)}
+                onMouseLeave={() => setShowPasswordRules(false)}
+                onClick={() => setShowPasswordRules(v => !v)}
+              >i</button>
+              {showPasswordRules && (
+                <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs text-gray-700 w-60">
+                  <p className="font-semibold mb-1 text-gray-800">Password must have:</p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    <li>More than 8 characters</li>
+                    <li>At least one capital letter (A-Z)</li>
+                    <li>At least one number (0-9)</li>
+                    <li>At least one special character (@$!%*?&#^_-)</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+            <input type="password" placeholder="Confirm Password" required
+              className={`w-full border p-2 mb-4 rounded ${confirmPassword && formData.password !== confirmPassword ? 'border-red-400 bg-red-50' : ''}`}
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)} />
+            {confirmPassword && formData.password !== confirmPassword && (
+              <p className="text-red-500 text-xs -mt-3 mb-3">Passwords do not match</p>
+            )}
             <input type="tel" placeholder="Phone Number"
               className="w-full border p-2 mb-6 rounded"
+              value={formData.phone_number}
               onChange={e => setFormData({ ...formData, phone_number: e.target.value })} />
-            <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700">
+            <button type="submit"
+              disabled={!!(confirmPassword && formData.password !== confirmPassword)}
+              className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
               Sign Up & Setup 2FA
             </button>
             <p className="mt-4 text-center text-sm text-gray-600">

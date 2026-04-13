@@ -44,7 +44,7 @@ export default function Recruiter() {
   const loadAll = async () => {
     try {
       const [c, j, a, p] = await Promise.all([
-        getCompanies(), getJobs(), getApplications(), getMyProfile(),
+        getCompanies(), getJobs({ my_jobs: true }), getApplications(), getMyProfile(),
       ]);
       setCompanies(c);
       setJobs(j);
@@ -245,12 +245,12 @@ export default function Recruiter() {
             <div style={{ background: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 1px 8px rgba(0,0,0,0.06)' }}>
               <h2 style={{ margin: '0 0 20px', fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Create Company</h2>
               <form onSubmit={handleCreateCompany} style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
-                <div><label style={labelStyle}>Company Name *</label>
-                  <input required style={inputStyle} value={companyForm.name} onChange={e => setCompanyForm({ ...companyForm, name: e.target.value })} /></div>
-                <div><label style={labelStyle}>Description</label>
-                  <textarea rows={3} style={{ ...inputStyle, resize: 'vertical' as const }} value={companyForm.description} onChange={e => setCompanyForm({ ...companyForm, description: e.target.value })} /></div>
-                <div><label style={labelStyle}>Location</label>
-                  <input style={inputStyle} value={companyForm.location} onChange={e => setCompanyForm({ ...companyForm, location: e.target.value })} /></div>
+                <div><label style={labelStyle}>Company Name * <span style={{ fontSize: 11, color: '#94a3b8' }}>{companyForm.name.length}/100</span></label>
+                  <input required maxLength={100} style={inputStyle} value={companyForm.name} onChange={e => setCompanyForm({ ...companyForm, name: e.target.value })} /></div>
+                <div><label style={labelStyle}>Description <span style={{ fontSize: 11, color: '#94a3b8' }}>{companyForm.description.length}/500</span></label>
+                  <textarea rows={3} maxLength={500} style={{ ...inputStyle, resize: 'vertical' as const }} value={companyForm.description} onChange={e => setCompanyForm({ ...companyForm, description: e.target.value })} /></div>
+                <div><label style={labelStyle}>Location <span style={{ fontSize: 11, color: '#94a3b8' }}>{companyForm.location.length}/100</span></label>
+                  <input maxLength={100} style={inputStyle} value={companyForm.location} onChange={e => setCompanyForm({ ...companyForm, location: e.target.value })} /></div>
                 <div><label style={labelStyle}>Website</label>
                   <input type="url" style={inputStyle} placeholder="https://" value={companyForm.website} onChange={e => setCompanyForm({ ...companyForm, website: e.target.value })} /></div>
                 <button type="submit" style={{
@@ -312,12 +312,12 @@ export default function Recruiter() {
                     <option value="">Select company...</option>
                     {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select></div>
-                <div><label style={labelStyle}>Job Title *</label>
-                  <input required style={inputStyle} value={jobForm.title} onChange={e => setJobForm({ ...jobForm, title: e.target.value })} /></div>
-                <div><label style={labelStyle}>Description *</label>
-                  <textarea required rows={3} style={{ ...inputStyle, resize: 'vertical' as const }} value={jobForm.description} onChange={e => setJobForm({ ...jobForm, description: e.target.value })} /></div>
-                <div><label style={labelStyle}>Required Skills</label>
-                  <input style={inputStyle} placeholder="React, Python, SQL" value={jobForm.required_skills} onChange={e => setJobForm({ ...jobForm, required_skills: e.target.value })} /></div>
+                <div><label style={labelStyle}>Job Title * <span style={{ fontSize: 11, color: '#94a3b8' }}>{jobForm.title.length}/150</span></label>
+                  <input required maxLength={150} style={inputStyle} value={jobForm.title} onChange={e => setJobForm({ ...jobForm, title: e.target.value })} /></div>
+                <div><label style={labelStyle}>Description * <span style={{ fontSize: 11, color: '#94a3b8' }}>{jobForm.description.length}/2000</span></label>
+                  <textarea required rows={3} maxLength={2000} style={{ ...inputStyle, resize: 'vertical' as const }} value={jobForm.description} onChange={e => setJobForm({ ...jobForm, description: e.target.value })} /></div>
+                <div><label style={labelStyle}>Required Skills <span style={{ fontSize: 11, color: '#94a3b8' }}>{jobForm.required_skills.length}/300</span></label>
+                  <input maxLength={300} style={inputStyle} placeholder="React, Python, SQL" value={jobForm.required_skills} onChange={e => setJobForm({ ...jobForm, required_skills: e.target.value })} /></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div><label style={labelStyle}>Location</label>
                     <input style={inputStyle} value={jobForm.location} onChange={e => setJobForm({ ...jobForm, location: e.target.value })} /></div>
@@ -394,8 +394,13 @@ export default function Recruiter() {
                       </div>
 
                       {app.cover_note && (
-                        <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#475569', marginBottom: 12, borderLeft: '3px solid #cbd5e1' }}>
-                          {app.cover_note}
+                        <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#475569', marginBottom: 8, borderLeft: '3px solid #cbd5e1' }}>
+                          <span style={{ fontWeight: 600, color: '#64748b', fontSize: 11 }}>Cover Note: </span>{app.cover_note}
+                        </div>
+                      )}
+                      {app.recruiter_notes && (
+                        <div style={{ background: '#fffbeb', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#92400e', marginBottom: 12, borderLeft: '3px solid #fbbf24' }}>
+                          <span style={{ fontWeight: 600, fontSize: 11 }}>Your Feedback: </span>{app.recruiter_notes}
                         </div>
                       )}
 
@@ -433,12 +438,16 @@ export default function Recruiter() {
                         >
                           {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
-                        <input
-                          placeholder="Add feedback note..."
-                          value={noteInputs[app.id] || ''}
-                          onChange={e => setNoteInputs({ ...noteInputs, [app.id]: e.target.value })}
-                          style={{ ...inputStyle, flex: 1, minWidth: 180, padding: '6px 12px' }}
-                        />
+                        <div style={{ flex: 1, minWidth: 180 }}>
+                          <input
+                            placeholder="Add feedback note..."
+                            value={noteInputs[app.id] || ''}
+                            maxLength={500}
+                            onChange={e => setNoteInputs({ ...noteInputs, [app.id]: e.target.value })}
+                            style={{ ...inputStyle, width: '100%', padding: '6px 12px' }}
+                          />
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{(noteInputs[app.id] || '').length}/500</span>
+                        </div>
                         <button
                           onClick={() => document.dispatchEvent(new CustomEvent('openChat', { detail: app.applicant_username }))}
                           style={{

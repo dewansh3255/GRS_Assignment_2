@@ -433,20 +433,22 @@ class UserListView(APIView):
             status='ACCEPTED'
         )
         
-        connected_ids = set()
+        pure_connected_ids = set()
         for conn in connections:
             if conn.sender_id == user.id:
-                connected_ids.add(conn.receiver_id)
+                pure_connected_ids.add(conn.receiver_id)
             else:
-                connected_ids.add(conn.sender_id)
+                pure_connected_ids.add(conn.sender_id)
+
+        all_visible_ids = set(pure_connected_ids)
 
         # Include users with prior message history
         messages = Message.objects.filter(Q(sender=user) | Q(recipient=user))
         for msg in messages:
             if msg.sender_id == user.id:
-                connected_ids.add(msg.recipient_id)
+                all_visible_ids.add(msg.recipient_id)
             else:
-                connected_ids.add(msg.sender_id)
+                all_visible_ids.add(msg.sender_id)
 
         # Include job applicants if the user is a recruiter
         from jobs.models import Application
@@ -454,10 +456,17 @@ class UserListView(APIView):
             Q(job__company__owner=user) | Q(job__company__employees=user)
         )
         for app in apps:
-            connected_ids.add(app.applicant_id)
+            all_visible_ids.add(app.applicant_id)
 
-        users = User.objects.filter(id__in=connected_ids).values('id', 'username')
-        return Response(list(users), status=status.HTTP_200_OK)
+        users = User.objects.filter(id__in=all_visible_ids).exclude(id=request.user.id)
+        result = []
+        for u in users:
+            result.append({
+                'id': u.id,
+                'username': u.username,
+                'is_connected': u.id in pure_connected_ids
+            })
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class GetMyKeysView(APIView):
@@ -848,11 +857,19 @@ class PublicProfileView(APIView):
         target_user = get_object_or_404(User, username=username)
         profile = get_object_or_404(Profile, user=target_user)
 
-        # Log the view — never count self-views, and respect viewer's privacy setting
+        # Log the view — never count self-views, respect privacy setting, and debounce 1 hour
         if request.user != target_user:
             try:
                 if request.user.profile.is_view_history_public:
-                    ProfileView.objects.create(viewer=request.user, viewed_user=target_user)
+                    from django.utils import timezone
+                    from datetime import timedelta
+                    recent_view = ProfileView.objects.filter(
+                        viewer=request.user,
+                        viewed_user=target_user,
+                        timestamp__gte=timezone.now() - timedelta(hours=1)
+                    ).exists()
+                    if not recent_view:
+                        ProfileView.objects.create(viewer=request.user, viewed_user=target_user)
             except Exception:
                 pass
 
@@ -1254,16 +1271,31 @@ class ProfilePictureUploadView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         file = request.FILES['picture']
-        # Basic mime check
-        if not file.content_type.startswith('image/'):
-            return Response({'error': 'File must be an image.'},
-                            status=status.HTTP_400_BAD_REQUEST)
 
-        # Size check — 2 MB max
-        max_size_mb = 2
-        if file.size > max_size_mb * 1024 * 1024:
+        # Strict extension check — must be jpg, jpeg, png, gif, or webp
+        import os
+        allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+        ext = os.path.splitext(file.name)[1].lower()
+        if ext not in allowed_extensions:
             return Response(
-                {'error': f'Image is too large ({file.size // (1024*1024) + 1} MB). Please upload an image under {max_size_mb} MB.'},
+                {'error': f'Unsupported file type "{ext}". Allowed formats: JPG, JPEG, PNG, GIF, WEBP.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Content-type must be an image
+        allowed_mimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        if file.content_type not in allowed_mimes:
+            return Response(
+                {'error': f'Invalid file content type "{file.content_type}". Please upload a real image file.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Size check — 10 MB max
+        max_size_mb = 10
+        if file.size > max_size_mb * 1024 * 1024:
+            size_mb = file.size / (1024 * 1024)
+            return Response(
+                {'error': f'Image is too large ({size_mb:.1f} MB). Please upload an image under {max_size_mb} MB.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -1630,9 +1662,23 @@ class CreateReportView(APIView):
         
         if not reason:
             return Response({'error': 'Reason is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(reason) > 500:
+            return Response({'error': 'Reason must not exceed 500 characters'}, status=status.HTTP_400_BAD_REQUEST)
             
         reported_user = User.objects.filter(id=reported_user_id).first() if reported_user_id else None
         reported_post = Post.objects.filter(id=reported_post_id).first() if reported_post_id else None
+
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        if reported_user:
+            recent_report = Report.objects.filter(
+                reporter=request.user,
+                reported_user=reported_user,
+                created_at__gte=timezone.now() - timedelta(hours=12)
+            ).exists()
+            if recent_report:
+                return Response({'error': 'You have recently reported this user. Please wait 12 hours.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
         
         Report.objects.create(
             reporter=request.user,
