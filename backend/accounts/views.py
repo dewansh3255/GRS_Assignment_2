@@ -2009,6 +2009,19 @@ class AdminPostDeleteView(APIView):
 class CreateReportView(APIView):
     permission_classes = [IsAuthenticated]
     
+    def get(self, request):
+        """Get user's own reports and recent report status for other users"""
+        user_reports = Report.objects.filter(reporter=request.user).order_by('-created_at')
+        data = [{
+            'id': r.id,
+            'reported_user': r.reported_user.username if r.reported_user else None,
+            'reported_post': r.reported_post.id if r.reported_post else None,
+            'reason': r.reason,
+            'created_at': r.created_at,
+            'is_resolved': r.is_resolved
+        } for r in user_reports]
+        return Response(data)
+    
     def post(self, request):
         reported_user_id = request.data.get('reported_user_id')
         reported_post_id = request.data.get('reported_post_id')
