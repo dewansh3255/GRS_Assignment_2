@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { getMyProfile, API_BASE_URL, secureFetch } from '../services/api';
+import { getMyProfile, API_BASE_URL, secureFetch, getErrorMessage } from '../services/api';
 
 export default function CompanyDetail() {
   const navigate = useNavigate();
@@ -89,7 +89,12 @@ export default function CompanyDetail() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: newPostContent }),
       });
-      if (!response.ok) throw new Error('Failed to post');
+      
+      if (!response.ok) {
+        const errorMessage = await getErrorMessage(response);
+        throw new Error(errorMessage);
+      }
+      
       const newPost = await response.json();
       setPosts([newPost, ...posts]);
       setNewPostContent('');

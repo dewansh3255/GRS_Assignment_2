@@ -1059,3 +1059,22 @@ export const removeCompanyEmployee = async (companyId: number, username: string)
   }
   return response.json();
 };
+
+// Utility function to safely parse error responses (handles both JSON and HTML errors)
+export const getErrorMessage = async (response: Response): Promise<string> => {
+  try {
+    const contentType = response.headers.get('content-type') || '';
+    
+    if (contentType.includes('application/json')) {
+      const errorData = await response.json();
+      return errorData.error || errorData.detail || `Server error: ${response.status}`;
+    } else if (contentType.includes('text/html')) {
+      // HTML error page - extract status text
+      return `Server error: ${response.status} ${response.statusText}`;
+    } else {
+      return `Server error: ${response.status} ${response.statusText}`;
+    }
+  } catch (err) {
+    return `Server error: ${response.status} ${response.statusText}`;
+  }
+};

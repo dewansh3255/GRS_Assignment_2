@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { getMyProfile, API_BASE_URL, secureFetch } from '../services/api';
+import { getMyProfile, API_BASE_URL, secureFetch, getErrorMessage } from '../services/api';
 
 export default function CompanyForm() {
   const navigate = useNavigate();
@@ -131,8 +131,8 @@ export default function CompanyForm() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to save company');
+        const errorMessage = await getErrorMessage(response);
+        throw new Error(errorMessage);
       }
 
       const company = await response.json();
