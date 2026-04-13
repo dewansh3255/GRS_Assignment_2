@@ -66,10 +66,10 @@ export default function ProfilePage() {
     load();
   }, [username, navigate]);
 
-  // Read cooldown from localStorage once we know the target username
+  // Read cooldown from localStorage — key is scoped per reporter+target to avoid cross-user leakage
   useEffect(() => {
-    if (!username) return;
-    const key = `report_cooldown_${username}`;
+    if (!username || !myProfile?.username) return;
+    const key = `report_cooldown_${myProfile.username}_${username}`;
     const stored = localStorage.getItem(key);
     if (stored) {
       const until = parseInt(stored, 10);
@@ -79,7 +79,7 @@ export default function ProfilePage() {
         localStorage.removeItem(key); // expired, clean up
       }
     }
-  }, [username]);
+  }, [username, myProfile]);
 
   // ── Connection actions ────────────────────────────────────────────────
 
@@ -121,18 +121,20 @@ export default function ProfilePage() {
     setReporting(true);
     try {
       await submitReport({ reported_user_id: profile.id, reason: reportReason });
-      // Set 12-hour cooldown in localStorage
+      // Set 12-hour cooldown in localStorage — scoped per reporter+target
       const cooldownUntil = Date.now() + 12 * 60 * 60 * 1000;
-      localStorage.setItem(`report_cooldown_${username}`, String(cooldownUntil));
+      const key = `report_cooldown_${myProfile?.username}_${username}`;
+      localStorage.setItem(key, String(cooldownUntil));
       setReportCooldownUntil(cooldownUntil);
       setShowReport(false);
       setReportReason('');
       alert('Report submitted to Admins. You cannot report this user again for 12 hours.');
     } catch (err: any) {
-      // If backend also returns 429, sync the cooldown from local storage if not already set
+      // If backend returns 429, sync the cooldown so the button disables immediately
       if (err.message?.includes('12 hours') || err.message?.includes('recently reported')) {
         const cooldownUntil = Date.now() + 12 * 60 * 60 * 1000;
-        localStorage.setItem(`report_cooldown_${username}`, String(cooldownUntil));
+        const key = `report_cooldown_${myProfile?.username}_${username}`;
+        localStorage.setItem(key, String(cooldownUntil));
         setReportCooldownUntil(cooldownUntil);
         setShowReport(false);
       }
