@@ -26,9 +26,19 @@ from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from .audit import create_audit_log
+from rest_framework.throttling import UserRateThrottle
 
 User = get_user_model()
 
+
+class MessageRateThrottle(UserRateThrottle):
+    scope = 'messages'
+
+class PostCreationThrottle(UserRateThrottle):
+    scope = 'post_creation'
+    
+class UploadRateThrottle(UserRateThrottle):
+    scope = 'uploads'
 
 class LoginRateThrottle(AnonRateThrottle):
     """5 TOTP/login attempts per minute per IP — brute force protection."""
@@ -655,6 +665,7 @@ class MessageListCreateView(generics.ListCreateAPIView):
     """
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
+    throttle_classes = [MessageRateThrottle]
 
     def get_queryset(self):
         # Only return messages sent TO the currently logged-in user
@@ -1057,6 +1068,7 @@ class GroupMessageListCreateView(APIView):
     POST: Send an encrypted message to the group.
     """
     permission_classes = [IsAuthenticated]
+    throttle_classes = [MessageRateThrottle]
 
     def _verify_membership(self, group_id, user):
         if not GroupMember.objects.filter(group_id=group_id, user=user).exists():
@@ -1370,6 +1382,11 @@ class FeedView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    def get_throttles(self):
+        if self.request.method == 'POST':
+            return [PostCreationThrottle()]
+        return super().get_throttles()
+
     def _connected_ids(self, user):
         """Return a set of user IDs the current user is connected to (+ self)."""
         sent_ids = Connection.objects.filter(
@@ -1588,6 +1605,7 @@ class ProfilePictureUploadView(APIView):
     POST /api/auth/profile/me/picture/  (multipart/form-data, field: picture)
     """
     permission_classes = [IsAuthenticated]
+    throttle_classes = [UploadRateThrottle]
 
     def post(self, request):
         if 'picture' not in request.FILES:

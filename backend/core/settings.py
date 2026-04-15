@@ -118,13 +118,26 @@ AUTH_PASSWORD_VALIDATORS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        # USE OUR NEW COOKIE AUTHENTICATOR
         'accounts.authentication.CookieJWTAuthentication', 
     ),
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
     'EXCEPTION_HANDLER': 'core.exception_handler.custom_exception_handler',
+    
+    # --- NEW: ADD RATE LIMITING GLOBALLY ---
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle'
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day',           # Global limit for unauthenticated users
+        'user': '2000/day',          # Global limit for authenticated users
+        'uploads': '4/hour',        # Strict limit for heavy tasks (Resumes/Images)
+        'job_actions': '30/hour',    # Limit for applying/creating jobs
+        'messages': '20/minute',     # Limit for chat spam
+        'post_creation': '10/hour'   # Limit for social feed spam
+    }
 }
 from datetime import timedelta
 

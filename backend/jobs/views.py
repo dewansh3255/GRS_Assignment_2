@@ -19,7 +19,7 @@ from rest_framework import status, generics, filters
 from django.db import transaction
 from django.db.models import Q
 from accounts.audit import create_audit_log
-
+from rest_framework.throttling import UserRateThrottle
 
 # class ResumeUploadView(APIView):
 #     permission_classes = [IsAuthenticated]
@@ -37,9 +37,16 @@ from accounts.audit import create_audit_log
 #         serializer = ResumeSerializer(resume)
 #         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+class UploadRateThrottle(UserRateThrottle):
+    scope = 'uploads'
+
+class JobActionThrottle(UserRateThrottle):
+    scope = 'job_actions'
+
 class ResumeUploadView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [UploadRateThrottle]
 
     def post(self, request, format=None):
         file = request.data.get('file')
@@ -240,6 +247,7 @@ class CompanyEmployeeManageView(APIView):
 class JobListCreateView(generics.ListCreateAPIView):
     serializer_class = JobSerializer
     permission_classes = [IsAuthenticated]
+    throttle_classes = [JobActionThrottle]
 
     def get_queryset(self):
         # Recruiter fix: only show jobs for the user's companies if my_jobs=true
@@ -397,6 +405,7 @@ class JobDetailView(generics.RetrieveUpdateDestroyAPIView):
 class ApplicationListCreateView(generics.ListCreateAPIView):
     serializer_class = ApplicationSerializer
     permission_classes = [IsAuthenticated]
+    throttle_classes = [JobActionThrottle]
 
     def get_queryset(self):
         user = self.request.user
