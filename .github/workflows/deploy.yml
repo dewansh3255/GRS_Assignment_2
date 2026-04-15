@@ -1,0 +1,25 @@
+name: Deploy and Restart VM
+
+on:
+  push:
+    branches:
+      - main  # Runs automatically when you push to main
+  workflow_dispatch: # Adds a manual "Run Workflow" button in GitHub so you can trigger this anytime
+
+jobs:
+  manage-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute Remote Commands via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # These are the commands GitHub will run on your VM:
+          script: |
+            cd ~/Desktop/GRS_Assignment_2
+            git pull origin main
+            docker-compose down
+            docker-compose build --no-cache frontend
+            docker-compose up -d
