@@ -18,7 +18,7 @@ jobs:
       - name: Deploy Docker Containers
         # We just run the commands directly because we are already on the VM!
         run: |
-          cd ~/Desktop/GRS_Assignment_2
+          cd ~/FCS_Project
           docker-compose down
           docker-compose build --no-cache frontend
           docker-compose up -d
